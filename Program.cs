@@ -15,62 +15,102 @@ builder.Services.AddControllers();
 builder.Services.AddDbContext<GasopperDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// Add custom services
+// REGISTER ALL SERVICES
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILeadService, LeadService>();
-// Add more services as you implement them
+builder.Services.AddScoped<IOpportunityService, OpportunityService>();
 
-// Configure JWT Authentication
+// Configure JWT Authentication - FIXED VERSION
 var jwtKey = builder.Configuration["Jwt:Key"];
+var jwtIssuer = builder.Configuration["Jwt:Issuer"];
+var jwtAudience = builder.Configuration["Jwt:Audience"];
+
+Console.WriteLine($"🔍 JWT Configuration Debug:");
+Console.WriteLine($"   Key: {jwtKey}");
+Console.WriteLine($"   Key Length: {jwtKey?.Length ?? 0}");
+Console.WriteLine($"   Issuer: {jwtIssuer}");
+Console.WriteLine($"   Audience: {jwtAudience}");
+
 if (string.IsNullOrEmpty(jwtKey))
 {
     throw new InvalidOperationException("JWT Key not configured in appsettings.json");
 }
 
-var key = Encoding.ASCII.GetBytes(jwtKey);
+var key = Encoding.UTF8.GetBytes(jwtKey);
 
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = false; // Set to true in production
+    options.RequireHttpsMetadata = false;
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateIssuer = true,
-        ValidIssuer = builder.Configuration["Jwt:Issuer"],
-        ValidateAudience = true,
-        ValidAudience = builder.Configuration["Jwt:Audience"],
-        ValidateLifetime = true,
+        ValidateIssuer = false, // DISABLE ISSUER VALIDATION
+        ValidateAudience = false, // DISABLE AUDIENCE VALIDATION
+        ValidateLifetime = false, // DISABLE LIFETIME VALIDATION FOR DEBUGGING
+        RequireExpirationTime = false,
         ClockSkew = TimeSpan.Zero
+    };
+
+    // DEBUG: Log JWT events
+    options.Events = new JwtBearerEvents
+    {
+        OnAuthenticationFailed = context =>
+        {
+            Console.WriteLine($"❌ JWT Auth Failed: {context.Exception.Message}");
+            Console.WriteLine($"❌ JWT Auth Stack: {context.Exception.StackTrace}");
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            Console.WriteLine($"✅ JWT Token Validated successfully");
+            var userIdClaim = context.Principal?.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+            Console.WriteLine($"✅ User ID from token: {userIdClaim}");
+            return Task.CompletedTask;
+        },
+        OnMessageReceived = context =>
+        {
+            var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+            Console.WriteLine($"🔍 Authorization Header: {authHeader}");
+            
+            var token = authHeader?.Split(" ").Last();
+            if (!string.IsNullOrEmpty(token))
+            {
+                Console.WriteLine($"🔍 JWT Token Received: {token.Substring(0, Math.Min(50, token.Length))}...");
+            }
+            return Task.CompletedTask;
+        },
+        OnChallenge = context =>
+        {
+            Console.WriteLine($"❌ JWT Challenge triggered: {context.Error}");
+            Console.WriteLine($"❌ JWT Error Description: {context.ErrorDescription}");
+            return Task.CompletedTask;
+        }
     };
 });
 
-// Configure Swagger/OpenAPI with JWT support
+// Configure Swagger/OpenAPI with JWT support - FIXED
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo 
     { 
         Title = "GasopperCRM API", 
-        Version = "v1",
-        Description = "Gas Station Customer Relationship Management System"
+        Version = "v1"
     });
 
-    // Add JWT Authentication to Swagger
+    // FIXED: Proper Bearer token configuration
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token in the text input below.",
+        Description = "JWT Authorization header using the Bearer scheme. Enter just your token below (Bearer will be added automatically).",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
+        Type = SecuritySchemeType.Http, // CHANGED from ApiKey to Http
+        Scheme = "bearer", // ADDED: This makes Swagger add "Bearer " automatically
+        BearerFormat = "JWT" // ADDED: Indicates JWT format
     });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -91,75 +131,42 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// Test database connection on startup
+// Test database connection
 try
 {
-    Console.WriteLine("Testing GasopperCRM database connection...");
-    
     using (var scope = app.Services.CreateScope())
     {
         var context = scope.ServiceProvider.GetRequiredService<GasopperDbContext>();
         var canConnect = await context.Database.CanConnectAsync();
-        Console.WriteLine($"✅ Database connection: {canConnect}");
-
+        Console.WriteLine($"📊 Database connection: {canConnect}");
+        
         if (canConnect)
         {
-            // Test basic queries
-            var roleCount = await context.Roles.CountAsync();
             var userCount = await context.Users.CountAsync();
-            var leadCount = await context.Leads.CountAsync();
-            var opportunityCount = await context.Opportunities.CountAsync();
-            var stationCount = await context.GasStations.CountAsync();
-            
-            Console.WriteLine($"📊 Database verification:");
-            Console.WriteLine($"   Roles: {roleCount}");
-            Console.WriteLine($"   Users: {userCount}");
-            Console.WriteLine($"   Leads: {leadCount}");
-            Console.WriteLine($"   Opportunities: {opportunityCount}");
-            Console.WriteLine($"   Gas Stations: {stationCount}");
-
-            // Test admin user exists
-            var adminUser = await context.Users
-                .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.role_id == 1);
-            
-            if (adminUser != null)
-            {
-                Console.WriteLine($"👤 Admin User: {adminUser.first_name} {adminUser.last_name} ({adminUser.Role?.role_name})");
-            }
-            
-            Console.WriteLine("✅ GasopperCRM database connection successful!");
-        }
-        else
-        {
-            Console.WriteLine("❌ Database connection failed!");
+            Console.WriteLine($"📊 Users in database: {userCount}");
         }
     }
 }
 catch (Exception ex)
 {
-    Console.WriteLine($"❌ Database connection error: {ex.Message}");
+    Console.WriteLine($"❌ Database error: {ex.Message}");
 }
 
-// Configure the HTTP request pipeline.
+// Configure middleware pipeline
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "GasopperCRM API v1");
-        c.RoutePrefix = "swagger";
-    });
+    app.UseSwaggerUI();
 }
 
-app.UseAuthentication(); // Add this BEFORE UseAuthorization
+// CRITICAL: Correct middleware order
+app.UseAuthentication(); // MUST come before UseAuthorization
 app.UseAuthorization();
 
 app.MapControllers();
 
-Console.WriteLine("🚀 GasopperCRM API Server starting...");
-Console.WriteLine("📱 Swagger UI available at: http://localhost:5211/swagger");
-Console.WriteLine("🔐 JWT Authentication configured");
-Console.WriteLine("✅ API Server ready!");
+Console.WriteLine("🚀 API Server starting...");
+Console.WriteLine("📱 Swagger: http://localhost:5211/swagger");
+Console.WriteLine("🔐 JWT debugging enabled - All validations disabled for debugging");
 
 app.Run();

@@ -52,21 +52,56 @@ namespace gasopper_crm_server.Controllers
         [Authorize]
         public async Task<IActionResult> GetCurrentUser()
         {
-            var identity = HttpContext.User.Identity as ClaimsIdentity;
-            if (identity == null)
-                return Unauthorized();
-
-            var userId = int.Parse(identity.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
+            Console.WriteLine("🔍 /me endpoint called");
             
-            if (userId == 0)
-                return Unauthorized();
+            try
+            {
+                var identity = HttpContext.User.Identity as ClaimsIdentity;
+                
+                Console.WriteLine($"🔍 Identity authenticated: {identity?.IsAuthenticated}");
+                Console.WriteLine($"🔍 Claims count: {identity?.Claims?.Count() ?? 0}");
 
-            var userInfo = await _authService.GetUserInfoAsync(userId);
-            
-            if (userInfo == null)
-                return Unauthorized();
+                if (identity?.Claims != null)
+                {
+                    foreach (var claim in identity.Claims)
+                    {
+                        Console.WriteLine($"🔍 Claim: {claim.Type} = {claim.Value}");
+                    }
+                }
 
-            return Ok(userInfo);
+                if (identity == null || !identity.IsAuthenticated)
+                {
+                    Console.WriteLine("❌ Not authenticated");
+                    return Unauthorized(new { message = "Not authenticated" });
+                }
+
+                var userIdClaim = identity.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+                Console.WriteLine($"🔍 User ID claim: {userIdClaim}");
+
+                var userId = int.Parse(userIdClaim ?? "0");
+                
+                if (userId == 0)
+                {
+                    Console.WriteLine("❌ Invalid user ID");
+                    return Unauthorized(new { message = "Invalid user ID in token" });
+                }
+
+                var userInfo = await _authService.GetUserInfoAsync(userId);
+                
+                if (userInfo == null)
+                {
+                    Console.WriteLine("❌ User info not found");
+                    return Unauthorized(new { message = "User not found or inactive" });
+                }
+
+                Console.WriteLine($"✅ Returning user info for: {userInfo.FirstName} {userInfo.LastName}");
+                return Ok(userInfo);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Exception in /me: {ex.Message}");
+                return Unauthorized(new { message = "Authentication failed", error = ex.Message });
+            }
         }
 
         [HttpGet("test")]
@@ -74,28 +109,33 @@ namespace gasopper_crm_server.Controllers
         {
             return Ok(new { 
                 message = "Auth controller is working!", 
-                timestamp = DateTime.UtcNow,
-                server = "GasopperCRM API",
-                version = "1.0"
+                timestamp = DateTime.UtcNow
             });
         }
 
-        // Helper endpoint for development - get user claims
-        [HttpGet("claims")]
+        [HttpGet("debug-claims")]
         [Authorize]
-        public IActionResult GetClaims()
+        public IActionResult DebugClaims()
         {
+            Console.WriteLine("🔍 Debug claims endpoint called");
+            
             var identity = HttpContext.User.Identity as ClaimsIdentity;
             if (identity == null)
-                return Unauthorized();
+            {
+                Console.WriteLine("❌ No identity");
+                return Unauthorized(new { message = "No identity" });
+            }
 
             var claims = identity.Claims.Select(c => new { 
                 Type = c.Type, 
                 Value = c.Value 
             }).ToList();
 
+            Console.WriteLine($"🔍 Total claims: {claims.Count}");
+
             return Ok(new { 
                 isAuthenticated = identity.IsAuthenticated,
+                authenticationType = identity.AuthenticationType,
                 name = identity.Name,
                 claims = claims
             });

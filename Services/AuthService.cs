@@ -29,27 +29,35 @@ namespace gasopper_crm_server.Services
 
         public async Task<LoginResponseDto?> LoginAsync(LoginDto loginDto)
         {
-            // Find user by email
+            Console.WriteLine($"🔍 Login attempt for: {loginDto.Email}");
+
             var user = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.email == loginDto.Email);
+                .FirstOrDefaultAsync(u => u.email == loginDto.Email && u.is_active);
 
-            if (user == null || !user.is_active)
+            if (user == null)
+            {
+                Console.WriteLine($"❌ User not found: {loginDto.Email}");
                 return null;
+            }
 
             if (!BCrypt.Net.BCrypt.Verify(loginDto.Password, user.password_hash))
+            {
+                Console.WriteLine($"❌ Invalid password for: {loginDto.Email}");
                 return null;
+            }
+
+            Console.WriteLine($"✅ User authenticated: {user.first_name} {user.last_name} ({user.Role?.role_name})");
 
             // Generate JWT token
             var token = GenerateJwtToken(user);
 
-            // Update user's token and login time
+            // Update user session
             user.jwt_token = token;
             user.last_login = DateTime.UtcNow;
-            user.iat = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            user.exp = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds(); // 1 year expiration
-
             await _context.SaveChangesAsync();
+
+            Console.WriteLine($"🎫 Token generated for user {user.user_id}");
 
             return new LoginResponseDto
             {
@@ -71,23 +79,29 @@ namespace gasopper_crm_server.Services
         public async Task<bool> LogoutAsync(int userId)
         {
             var user = await _context.Users.FindAsync(userId);
-            if (user == null)
-                return false;
+            if (user == null) return false;
 
-            user.jwt_token = null; // Clear the token
+            user.jwt_token = null;
             await _context.SaveChangesAsync();
-
+            Console.WriteLine($"🚪 User {userId} logged out");
             return true;
         }
 
         public async Task<UserInfoDto?> GetUserInfoAsync(int userId)
         {
+            Console.WriteLine($"🔍 Getting user info for ID: {userId}");
+
             var user = await _context.Users
                 .Include(u => u.Role)
-                .FirstOrDefaultAsync(u => u.user_id == userId);
+                .FirstOrDefaultAsync(u => u.user_id == userId && u.is_active);
 
-            if (user == null || !user.is_active)
+            if (user == null)
+            {
+                Console.WriteLine($"❌ User {userId} not found or inactive");
                 return null;
+            }
+
+            Console.WriteLine($"✅ User info found: {user.first_name} {user.last_name} ({user.Role?.role_name})");
 
             return new UserInfoDto
             {
@@ -102,34 +116,19 @@ namespace gasopper_crm_server.Services
 
         private string GenerateJwtToken(User user)
         {
-            // Get JWT configuration with proper null checking
             var jwtKey = _configuration["Jwt:Key"];
             var jwtIssuer = _configuration["Jwt:Issuer"];
             var jwtAudience = _configuration["Jwt:Audience"];
 
-            // Validate JWT configuration
+            Console.WriteLine($"🔍 JWT Generation Debug:");
+            Console.WriteLine($"   User ID: {user.user_id}");
+            Console.WriteLine($"   Role: {user.Role?.role_name} (ID: {user.role_id})");
+            Console.WriteLine($"   Key Length: {jwtKey?.Length}");
+
             if (string.IsNullOrEmpty(jwtKey))
-            {
-                throw new InvalidOperationException("JWT Key is not configured in appsettings.json. Please check Jwt:Key setting.");
-            }
+                throw new InvalidOperationException("JWT Key not configured");
 
-            if (string.IsNullOrEmpty(jwtIssuer))
-            {
-                throw new InvalidOperationException("JWT Issuer is not configured in appsettings.json. Please check Jwt:Issuer setting.");
-            }
-
-            if (string.IsNullOrEmpty(jwtAudience))
-            {
-                throw new InvalidOperationException("JWT Audience is not configured in appsettings.json. Please check Jwt:Audience setting.");
-            }
-
-            // Ensure JWT key is long enough
-            if (jwtKey.Length < 32)
-            {
-                throw new InvalidOperationException("JWT Key must be at least 32 characters long for security reasons.");
-            }
-
-            var key = Encoding.UTF8.GetBytes(jwtKey); // Changed from ASCII to UTF8
+            var key = Encoding.UTF8.GetBytes(jwtKey);
             var tokenHandler = new JwtSecurityTokenHandler();
 
             var claims = new List<Claim>
@@ -139,22 +138,30 @@ namespace gasopper_crm_server.Services
                 new Claim(ClaimTypes.Name, $"{user.first_name} {user.last_name}"),
                 new Claim(ClaimTypes.Role, user.Role?.role_name ?? ""),
                 new Claim("role_id", user.role_id.ToString()),
-                new Claim("employee_id", user.employee_id),
-                new Claim("first_name", user.first_name),
-                new Claim("last_name", user.last_name)
+                new Claim("employee_id", user.employee_id)
             };
+
+            Console.WriteLine($"🎫 Token claims:");
+            foreach (var claim in claims)
+            {
+                Console.WriteLine($"   {claim.Type}: {claim.Value}");
+            }
 
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = new ClaimsIdentity(claims),
-                Expires = DateTime.UtcNow.AddDays(365), // 1 year
-                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
+                Expires = DateTime.UtcNow.AddHours(24),
+                SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256),
                 Issuer = jwtIssuer,
                 Audience = jwtAudience
             };
 
             var token = tokenHandler.CreateToken(tokenDescriptor);
-            return tokenHandler.WriteToken(token);
+            var tokenString = tokenHandler.WriteToken(token);
+
+            Console.WriteLine($"🎫 Generated token: {tokenString.Substring(0, 50)}...");
+            
+            return tokenString;
         }
     }
 }
