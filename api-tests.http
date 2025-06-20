@@ -1,0 +1,43 @@
+### GasopperCRM API - Token Generator
+
+@baseUrl = http://localhost:5211
+
+### USER CREDENTIALS
+@adminEmail = admin@gasoppercrm.com
+@adminPassword = Admin@123
+
+@managerEmail = manager@gasoppercrm.com
+@managerPassword = Manager@123
+
+@salespersonEmail = bob.sales@gasoppercrm.com
+@salespersonPassword = Sales@123
+
+### GET PRE-GENERATED TEST TOKENS
+GET {{baseUrl}}/api/Test/tokens
+
+### LOGIN AS ADMIN
+POST {{baseUrl}}/api/Auth/login
+Content-Type: application/json
+
+{
+  "email": "{{adminEmail}}",
+  "password": "{{adminPassword}}"
+}
+
+### LOGIN AS MANAGER
+POST {{baseUrl}}/api/Auth/login
+Content-Type: application/json
+
+{
+  "email": "{{managerEmail}}",
+  "password": "{{managerPassword}}"
+}
+
+### LOGIN AS SALESPERSON
+POST {{baseUrl}}/api/Auth/login
+Content-Type: application/json
+
+{
+  "email": "{{salespersonEmail}}",
+  "password": "{{salespersonPassword}}"
+}
