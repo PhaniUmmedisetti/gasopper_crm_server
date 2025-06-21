@@ -32,7 +32,7 @@ namespace gasopper_crm_server.Services
         {
             try
             {
-                // FIXED: Build base query first
+                // ✅ ENHANCED: Include gas station created by user
                 var query = _context.Opportunities
                     .Include(o => o.Lead)
                     .Include(o => o.OpportunityStatus)
@@ -40,16 +40,18 @@ namespace gasopper_crm_server.Services
                     .Include(o => o.CreatedByUser)
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
                         .ThenInclude(gs => gs.StationType)
+                    .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
+                        .ThenInclude(gs => gs.CreatedByUser) // ✅ ADDED: Include station creator
                     .Where(o => o.opportunity_id == opportunityId && !o.is_deleted);
 
-                // FIXED: Apply role-based filtering with MATERIALIZED team member IDs
+                // Apply role-based filtering with MATERIALIZED team member IDs
                 if (currentUserRole == 3) // Salesperson can only see their own opportunities
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
                 else if (currentUserRole == 2) // Manager can see own + team opportunities
                 {
-                    // FIXED: Materialize team member IDs first
+                    // Materialize team member IDs first
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
                         .Select(u => u.user_id)
@@ -140,8 +142,8 @@ namespace gasopper_crm_server.Services
                     return null;
 
                 // Update basic fields
-                opportunity.owner_name = updateDto.OwnerName;
-                opportunity.owner_address = updateDto.OwnerAddress;
+                opportunity.owner_name = updateDto.OwnerName ?? "";
+                opportunity.owner_address = updateDto.OwnerAddress ?? "";
 
                 // Handle assignment changes (Admin/Manager only)
                 if (updateDto.AssignedTo.HasValue && currentUserRole <= 2)
@@ -473,25 +475,39 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // Check if a gas station is complete (all required fields filled)
+        // ✅ ENHANCED: Check if a gas station is complete (all required fields filled)
         private static bool IsStationComplete(GasStation station)
         {
-            return !string.IsNullOrEmpty(station.poc_name) &&
-                   !string.IsNullOrEmpty(station.poc_phone) &&
-                   station.number_of_pumps.HasValue &&
-                   station.number_of_employees.HasValue &&
-                   station.station_type_id.HasValue;
+            // Required fields: station_name, address (always required)
+            var hasRequiredFields = !string.IsNullOrWhiteSpace(station.station_name)
+                                   && !string.IsNullOrWhiteSpace(station.address);
+
+            // Optional fields for completion: poc_name, poc_phone, poc_email, number_of_pumps, number_of_employees, station_type_id
+            var hasOptionalFields = !string.IsNullOrWhiteSpace(station.poc_name)
+                                   && !string.IsNullOrWhiteSpace(station.poc_phone)
+                                   && !string.IsNullOrWhiteSpace(station.poc_email)
+                                   && station.number_of_pumps.HasValue
+                                   && station.number_of_employees.HasValue
+                                   && station.station_type_id.HasValue;
+
+            return hasRequiredFields && hasOptionalFields;
         }
 
-        // Get missing fields for a gas station
+        // ✅ ENHANCED: Get missing fields for a gas station
         private static List<string> GetMissingFields(GasStation station)
         {
             var missing = new List<string>();
 
-            if (string.IsNullOrEmpty(station.poc_name))
+            if (string.IsNullOrWhiteSpace(station.station_name))
+                missing.Add("Station Name");
+            if (string.IsNullOrWhiteSpace(station.address))
+                missing.Add("Address");
+            if (string.IsNullOrWhiteSpace(station.poc_name))
                 missing.Add("POC Name");
-            if (string.IsNullOrEmpty(station.poc_phone))
+            if (string.IsNullOrWhiteSpace(station.poc_phone))
                 missing.Add("POC Phone");
+            if (string.IsNullOrWhiteSpace(station.poc_email))
+                missing.Add("POC Email");
             if (!station.number_of_pumps.HasValue)
                 missing.Add("Number of Pumps");
             if (!station.number_of_employees.HasValue)
@@ -502,6 +518,7 @@ namespace gasopper_crm_server.Services
             return missing;
         }
 
+        // ✅ ENHANCED: Map to opportunity response with complete gas station details
         private OpportunityResponseDto MapToOpportunityResponseDto(Opportunity opportunity)
         {
             var stations = opportunity.GasStations.ToList();
@@ -522,8 +539,13 @@ namespace gasopper_crm_server.Services
                 StationTypeName = s.StationType?.type_name,
                 IsComplete = IsStationComplete(s),
                 MissingFields = GetMissingFields(s),
-                CreatedAt = s.created_at
-            }).ToList();
+                CreatedAt = s.created_at,
+                
+                // Status fields for compatibility (using station type info)
+                StatusId = s.station_type_id ?? 0,
+                StatusName = s.StationType?.type_name ?? "",
+                Description = s.notes ?? ""
+            }).OrderBy(s => s.StationName).ToList(); // ✅ ADDED: Order by station name
 
             return new OpportunityResponseDto
             {
@@ -545,9 +567,10 @@ namespace gasopper_crm_server.Services
                 CompleteStations = completeStations,
                 IncompleteStations = incompleteStations,
                 CompletionPercentage = completionPercentage,
-                Stations = stationDtos,
+                Stations = stationDtos, // ✅ NESTED GAS STATIONS WITH COMPLETE DETAILS
                 CreatedAt = opportunity.created_at,
-                LastUpdated = opportunity.last_updated
+                LastUpdated = opportunity.last_updated,
+                IsDeleted = opportunity.is_deleted // ✅ ADDED: Missing field
             };
         }
 
@@ -562,7 +585,7 @@ namespace gasopper_crm_server.Services
                 OpportunityId = opportunity.opportunity_id,
                 LeadName = opportunity.Lead?.name ?? "",
                 OwnerName = opportunity.owner_name,
-                StatusName = opportunity.OpportunityStatus?.status_name ?? "",
+                StatusId = opportunity.status_id, // ✅ ADDED: Missing statusId
                 AssignedToName = $"{opportunity.AssignedToUser?.first_name ?? ""} {opportunity.AssignedToUser?.last_name ?? ""}".Trim(),
                 TotalStations = stations.Count,
                 CompleteStations = completeStations,

@@ -121,6 +121,8 @@ namespace gasopper_crm_server.DTOs
 
         // Opportunity information (if converted)
         public int? OpportunityId { get; set; }
+        public bool HasOpportunity { get; set; } 
+
         public string? OpportunityStatus { get; set; } // Updated from Stage to Status
 
         // Soft delete status

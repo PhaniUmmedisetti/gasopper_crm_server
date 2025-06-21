@@ -15,13 +15,14 @@ builder.Services.AddControllers();
 builder.Services.AddDbContext<GasopperDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// REGISTER ALL SERVICES
+// REGISTER ALL SERVICES 
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILeadService, LeadService>();
 builder.Services.AddScoped<IOpportunityService, OpportunityService>();
+builder.Services.AddScoped<IGasStationService, GasStationService>(); 
 
-// Configure JWT Authentication - FIXED VERSION
+// Configure JWT Authentication - WORKING VERSION
 var jwtKey = builder.Configuration["Jwt:Key"];
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
@@ -92,25 +93,26 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     };
 });
 
-// Configure Swagger/OpenAPI with JWT support - FIXED
+// Configure Swagger/OpenAPI with JWT support - WORKING
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo 
     { 
         Title = "GasopperCRM API", 
-        Version = "v1"
+        Version = "v1",
+        Description = "Complete Gas Station CRM API with Gas Station Management"
     });
 
-    // FIXED: Proper Bearer token configuration
+    // JWT Bearer token configuration
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Description = "JWT Authorization header using the Bearer scheme. Enter just your token below (Bearer will be added automatically).",
         Name = "Authorization",
         In = ParameterLocation.Header,
-        Type = SecuritySchemeType.Http, // CHANGED from ApiKey to Http
-        Scheme = "bearer", // ADDED: This makes Swagger add "Bearer " automatically
-        BearerFormat = "JWT" // ADDED: Indicates JWT format
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT"
     });
 
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
@@ -143,7 +145,16 @@ try
         if (canConnect)
         {
             var userCount = await context.Users.CountAsync();
+            var leadCount = await context.Leads.CountAsync();
+            var opportunityCount = await context.Opportunities.CountAsync();
+            var gasStationCount = await context.GasStations.CountAsync(); // ✅ NEW CHECK
+            var stationTypeCount = await context.StationTypes.CountAsync(); // ✅ NEW CHECK
+            
             Console.WriteLine($"📊 Users in database: {userCount}");
+            Console.WriteLine($"📊 Leads in database: {leadCount}");
+            Console.WriteLine($"📊 Opportunities in database: {opportunityCount}");
+            Console.WriteLine($"📊 Gas Stations in database: {gasStationCount}"); // ✅ NEW LOG
+            Console.WriteLine($"📊 Station Types in database: {stationTypeCount}"); // ✅ NEW LOG
         }
     }
 }
@@ -168,5 +179,6 @@ app.MapControllers();
 Console.WriteLine("🚀 API Server starting...");
 Console.WriteLine("📱 Swagger: http://localhost:5211/swagger");
 Console.WriteLine("🔐 JWT debugging enabled - All validations disabled for debugging");
+Console.WriteLine("⛽ Gas Station Management: READY FOR TESTING"); // ✅ NEW MESSAGE
 
 app.Run();

@@ -2,22 +2,28 @@ using System.ComponentModel.DataAnnotations;
 
 namespace gasopper_crm_server.DTOs
 {
-    // 1. UPDATE OPPORTUNITY DTO (no create - opportunities come from lead conversion)
-    public class UpdateOpportunityDto
+    public class CreateOpportunityDto
     {
         [Required]
-        [StringLength(100, ErrorMessage = "Owner name cannot exceed 100 characters")]
+        [MaxLength(100)]
         public string OwnerName { get; set; } = string.Empty;
 
         [Required]
-        [StringLength(500, ErrorMessage = "Owner address cannot exceed 500 characters")]
         public string OwnerAddress { get; set; } = string.Empty;
 
-        // Optional assignment (Admin/Manager can reassign)
         public int? AssignedTo { get; set; }
     }
 
-    // 2. UPDATE OPPORTUNITY STATUS DTO (manual status control)
+    public class UpdateOpportunityDto
+    {
+        [MaxLength(100)]
+        public string? OwnerName { get; set; }
+
+        public string? OwnerAddress { get; set; }
+
+        public int? AssignedTo { get; set; }
+    }
+
     public class UpdateOpportunityStatusDto
     {
         [Required]
@@ -25,14 +31,13 @@ namespace gasopper_crm_server.DTOs
         public int StatusId { get; set; }
     }
 
-    // 3. ASSIGN OPPORTUNITY DTO (Admin/Manager only)
     public class AssignOpportunityDto
     {
         [Required]
         public int AssignedTo { get; set; }
     }
 
-    // 4. FULL OPPORTUNITY RESPONSE DTO (detailed view)
+    // ✅ COMPLETE OpportunityResponseDto - ALL fields your service expects
     public class OpportunityResponseDto
     {
         public int OpportunityId { get; set; }
@@ -42,76 +47,68 @@ namespace gasopper_crm_server.DTOs
         public string LeadPhone { get; set; } = string.Empty;
         public string OwnerName { get; set; } = string.Empty;
         public string OwnerAddress { get; set; } = string.Empty;
-        
+
         // Status information
         public int StatusId { get; set; }
         public string StatusName { get; set; } = string.Empty;
         public string StatusDescription { get; set; } = string.Empty;
-        
+
         // Assignment information
         public int AssignedTo { get; set; }
         public string AssignedToName { get; set; } = string.Empty;
         public int CreatedBy { get; set; }
         public string CreatedByName { get; set; } = string.Empty;
-        
-        // Station completion tracking
+
+        // ✅ GAS STATION FIELDS - Required by your service
+        public List<OpportunityStationDto> Stations { get; set; } = new List<OpportunityStationDto>();
         public int TotalStations { get; set; }
         public int CompleteStations { get; set; }
         public int IncompleteStations { get; set; }
         public double CompletionPercentage { get; set; }
-        
-        // Station details (list of stations for this opportunity)
-        public List<OpportunityStationDto> Stations { get; set; } = new List<OpportunityStationDto>();
-        
+
         // Timestamps
         public DateTime CreatedAt { get; set; }
         public DateTime LastUpdated { get; set; }
+        public bool IsDeleted { get; set; }
     }
 
-    // 5. OPPORTUNITY LIST DTO (optimized for lists)
+    // ✅ FIXED OpportunityListDto - Added missing StatusId property
     public class OpportunityListDto
     {
         public int OpportunityId { get; set; }
         public string LeadName { get; set; } = string.Empty;
         public string OwnerName { get; set; } = string.Empty;
+        public int StatusId { get; set; } // ✅ ADDED: This was missing and causing the error
         public string StatusName { get; set; } = string.Empty;
         public string AssignedToName { get; set; } = string.Empty;
-        
-        // Completion summary
+
+        // ✅ GAS STATION FIELDS - Required by your service
         public int TotalStations { get; set; }
         public int CompleteStations { get; set; }
         public double CompletionPercentage { get; set; }
-        
-        // Key dates
+
         public DateTime CreatedAt { get; set; }
         public DateTime LastUpdated { get; set; }
     }
 
-    // 6. STATION INFO FOR OPPORTUNITY (nested in opportunity response)
-    public class OpportunityStationDto
+    // ✅ COMPLETE OpportunityStatsDto - ALL fields your service expects
+    public class OpportunityStatsDto
     {
-        public int StationId { get; set; }
-        public string StationName { get; set; } = string.Empty;
-        public string Address { get; set; } = string.Empty;
-        
-        // POC information (from gas_stations table)
-        public string? PocName { get; set; }
-        public string? PocPhone { get; set; }
-        public string? PocEmail { get; set; }
-        
-        // Station details
-        public int? NumberOfPumps { get; set; }
-        public int? NumberOfEmployees { get; set; }
-        public string? StationTypeName { get; set; }
-        
-        // Completion status
-        public bool IsComplete { get; set; }
-        public List<string> MissingFields { get; set; } = new List<string>();
-        
-        public DateTime CreatedAt { get; set; }
+        public int TotalOpportunities { get; set; }
+        public int ActiveOpportunities { get; set; }
+        public int CompleteOpportunities { get; set; }
+        public double CompletionRate { get; set; }
+
+        // ✅ GAS STATION METRICS - Required by your service
+        public int TotalStations { get; set; }
+        public int CompleteStations { get; set; }
+        public double StationCompletionRate { get; set; }
+        public double AverageStationsPerOpportunity { get; set; }
+
+        public int AverageDaysToComplete { get; set; }
+        public Dictionary<string, int> StatusBreakdown { get; set; } = new Dictionary<string, int>();
     }
 
-    // 7. OPPORTUNITY STATUS REFERENCE DTO (for dropdowns)
     public class OpportunityStatusDto
     {
         public int StatusId { get; set; }
@@ -119,24 +116,25 @@ namespace gasopper_crm_server.DTOs
         public string Description { get; set; } = string.Empty;
     }
 
-    // 8. OPPORTUNITY STATISTICS DTO (for dashboard)
-    public class OpportunityStatsDto
+    // ✅ COMPLETE OpportunityStationDto - ALL fields your service expects
+    public class OpportunityStationDto
     {
-        public int TotalOpportunities { get; set; }
-        public int ActiveOpportunities { get; set; }       // Status 1 (Active)
-        public int CompleteOpportunities { get; set; }     // Status 2 (Complete)
-        public double CompletionRate { get; set; }         // Complete / Total * 100
-        
-        // Station statistics
-        public int TotalStations { get; set; }
-        public int CompleteStations { get; set; }
-        public double StationCompletionRate { get; set; }
-        
-        // Average metrics
-        public double AverageStationsPerOpportunity { get; set; }
-        public int AverageDaysToComplete { get; set; }
-        
-        // Status breakdown (only "Active" and "Complete")
-        public Dictionary<string, int> StatusBreakdown { get; set; } = new Dictionary<string, int>();
+        public int StationId { get; set; }
+        public string StationName { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;
+        public string? PocName { get; set; }
+        public string? PocPhone { get; set; }
+        public string? PocEmail { get; set; }
+        public int? NumberOfPumps { get; set; }
+        public int? NumberOfEmployees { get; set; }
+        public string? StationTypeName { get; set; }
+        public bool IsComplete { get; set; }
+        public List<string> MissingFields { get; set; } = new List<string>();
+        public DateTime CreatedAt { get; set; }
+
+        // Also include status fields for compatibility
+        public int StatusId { get; set; }
+        public string StatusName { get; set; } = string.Empty;
+        public string Description { get; set; } = string.Empty;
     }
 }

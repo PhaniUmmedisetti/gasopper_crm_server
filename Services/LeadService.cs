@@ -110,6 +110,7 @@ namespace gasopper_crm_server.Services
                 CreatedAt = lead.created_at,
                 LastUpdated = lead.last_updated,
                 OpportunityId = lead.Opportunity?.opportunity_id,
+                HasOpportunity = lead.Opportunity != null, // ✅ ADDED: Missing hasOpportunity field
                 OpportunityStatus = lead.Opportunity?.OpportunityStatus?.status_name,
                 IsDeleted = lead.is_deleted
             };
@@ -120,6 +121,7 @@ namespace gasopper_crm_server.Services
             var query = _context.Leads
                 .Include(l => l.AssignedToUser)
                 .Include(l => l.Status)
+                .Include(l => l.Opportunity) // ✅ ADDED: Include opportunity to fix hasOpportunity
                 .AsQueryable();
 
             if (!includeDeleted)
@@ -157,7 +159,7 @@ namespace gasopper_crm_server.Services
                 AssignedToName = $"{l.AssignedToUser?.first_name} {l.AssignedToUser?.last_name}".Trim(),
                 CreatedAt = l.created_at,
                 LastUpdated = l.last_updated,
-                HasOpportunity = l.Opportunity != null,
+                HasOpportunity = l.Opportunity != null, // ✅ This was already correct
                 IsDeleted = l.is_deleted
             }).ToList();
         }
