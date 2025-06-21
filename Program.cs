@@ -22,7 +22,7 @@ builder.Services.AddScoped<ILeadService, LeadService>();
 builder.Services.AddScoped<IOpportunityService, OpportunityService>();
 builder.Services.AddScoped<IGasStationService, GasStationService>(); 
 
-// Configure JWT Authentication - WORKING VERSION
+// Configure JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"];
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
 var jwtAudience = builder.Configuration["Jwt:Audience"];
@@ -49,9 +49,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateIssuer = false, // DISABLE ISSUER VALIDATION
-        ValidateAudience = false, // DISABLE AUDIENCE VALIDATION
-        ValidateLifetime = false, // DISABLE LIFETIME VALIDATION FOR DEBUGGING
+        ValidateIssuer = false, 
+        ValidateAudience = false, 
+        ValidateLifetime = false, 
         RequireExpirationTime = false,
         ClockSkew = TimeSpan.Zero
     };
@@ -93,7 +93,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     };
 });
 
-// Configure Swagger/OpenAPI with JWT support - WORKING
+// Configure Swagger/OpenAPI with JWT support
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -147,14 +147,14 @@ try
             var userCount = await context.Users.CountAsync();
             var leadCount = await context.Leads.CountAsync();
             var opportunityCount = await context.Opportunities.CountAsync();
-            var gasStationCount = await context.GasStations.CountAsync(); // ✅ NEW CHECK
-            var stationTypeCount = await context.StationTypes.CountAsync(); // ✅ NEW CHECK
+            var gasStationCount = await context.GasStations.CountAsync(); 
+            var stationTypeCount = await context.StationTypes.CountAsync(); 
             
             Console.WriteLine($"📊 Users in database: {userCount}");
             Console.WriteLine($"📊 Leads in database: {leadCount}");
             Console.WriteLine($"📊 Opportunities in database: {opportunityCount}");
-            Console.WriteLine($"📊 Gas Stations in database: {gasStationCount}"); // ✅ NEW LOG
-            Console.WriteLine($"📊 Station Types in database: {stationTypeCount}"); // ✅ NEW LOG
+            Console.WriteLine($"📊 Gas Stations in database: {gasStationCount}"); 
+            Console.WriteLine($"📊 Station Types in database: {stationTypeCount}"); 
         }
     }
 }
@@ -179,6 +179,6 @@ app.MapControllers();
 Console.WriteLine("🚀 API Server starting...");
 Console.WriteLine("📱 Swagger: http://localhost:5211/swagger");
 Console.WriteLine("🔐 JWT debugging enabled - All validations disabled for debugging");
-Console.WriteLine("⛽ Gas Station Management: READY FOR TESTING"); // ✅ NEW MESSAGE
+Console.WriteLine("⛽ Gas Station Management: READY FOR TESTING"); 
 
 app.Run();
