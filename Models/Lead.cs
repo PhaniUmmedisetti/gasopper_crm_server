@@ -1,4 +1,3 @@
-// Your Lead model should look like this - please check if it matches:
 
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;

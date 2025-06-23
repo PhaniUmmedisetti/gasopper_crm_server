@@ -22,6 +22,18 @@ builder.Services.AddScoped<ILeadService, LeadService>();
 builder.Services.AddScoped<IOpportunityService, OpportunityService>();
 builder.Services.AddScoped<IGasStationService, GasStationService>(); 
 
+// ADD CORS FOR FRONTEND
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowFrontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
 // Configure JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"];
 var jwtIssuer = builder.Configuration["Jwt:Issuer"];
@@ -170,6 +182,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// CRITICAL: CORS MUST COME FIRST
+app.UseCors("AllowFrontend");
+
 // CRITICAL: Correct middleware order
 app.UseAuthentication(); // MUST come before UseAuthorization
 app.UseAuthorization();
@@ -178,6 +193,7 @@ app.MapControllers();
 
 Console.WriteLine("🚀 API Server starting...");
 Console.WriteLine("📱 Swagger: http://localhost:5211/swagger");
+Console.WriteLine("🌐 CORS: Enabled for http://localhost:5173");
 Console.WriteLine("🔐 JWT debugging enabled - All validations disabled for debugging");
 Console.WriteLine("⛽ Gas Station Management: READY FOR TESTING"); 
 
