@@ -8,7 +8,7 @@ namespace gasopper_crm_server.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize] // ALL endpoints require authentication, but no specific role restrictions
+    [Authorize]
     public class OpportunitiesController : ControllerBase
     {
         private readonly IOpportunityService _opportunityService;
@@ -18,7 +18,6 @@ namespace gasopper_crm_server.Controllers
             _opportunityService = opportunityService;
         }
 
-        // ✅ ALL AUTHENTICATED USERS can view opportunities (role-based filtering in service)
         [HttpGet]
         public async Task<IActionResult> GetOpportunities([FromQuery] bool includeDeleted = false)
         {
@@ -28,7 +27,6 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = opportunities, count = opportunities.Count });
         }
 
-        // ✅ ALL AUTHENTICATED USERS can view single opportunity (role-based access check in service)
         [HttpGet("{id}")]
         public async Task<IActionResult> GetOpportunity(int id)
         {
@@ -41,9 +39,6 @@ namespace gasopper_crm_server.Controllers
             return Ok(opportunity);
         }
 
-        // 🚫 NO POST endpoint - opportunities are created via lead conversion only
-
-        // ✅ ALL AUTHENTICATED USERS can update their accessible opportunities
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateOpportunity(int id, [FromBody] UpdateOpportunityDto updateDto)
         {
@@ -59,7 +54,6 @@ namespace gasopper_crm_server.Controllers
             return Ok(opportunity);
         }
 
-        // ✅ ALL AUTHENTICATED USERS can update status of their accessible opportunities
         [HttpPut("{id}/status")]
         public async Task<IActionResult> UpdateOpportunityStatus(int id, [FromBody] UpdateOpportunityStatusDto statusDto)
         {
@@ -75,7 +69,6 @@ namespace gasopper_crm_server.Controllers
             return Ok(opportunity);
         }
 
-        // 🔒 ONLY Manager/Admin can reassign opportunities
         [HttpPut("{id}/assign")]
         [Authorize(Roles = "Admin,Manager")]
         public async Task<IActionResult> AssignOpportunity(int id, [FromBody] AssignOpportunityDto assignDto)
@@ -95,7 +88,6 @@ namespace gasopper_crm_server.Controllers
             });
         }
 
-        // ✅ ALL AUTHENTICATED USERS can view their own opportunities
         [HttpGet("my-opportunities")]
         public async Task<IActionResult> GetMyOpportunities()
         {
@@ -105,7 +97,6 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = opportunities, count = opportunities.Count });
         }
 
-        // 🔒 ONLY Manager/Admin can view team opportunities
         [HttpGet("team-opportunities")]
         [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> GetTeamOpportunities()
@@ -116,17 +107,32 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = opportunities, count = opportunities.Count });
         }
 
-        // ✅ ALL AUTHENTICATED USERS can view their stats (role-based filtering in service)
         [HttpGet("stats")]
         public async Task<IActionResult> GetOpportunityStats()
         {
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var stats = await _opportunityService.GetOpportunityStatsAsync(currentUserId, currentUserRole);
-            
-            return Ok(stats);
+            try
+            {
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                var stats = await _opportunityService.GetOpportunityStatsAsync(currentUserId, currentUserRole);
+                
+                // Calculate estimated value from stations
+                var estimatedValue = stats.TotalStations * 50000; // $50k per station
+                
+                var response = new
+                {
+                    active = stats.ActiveOpportunities,
+                    closed = stats.CompleteOpportunities,
+                    totalValue = estimatedValue
+                };
+                
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error fetching opportunity statistics", error = ex.Message });
+            }
         }
 
-        // ✅ ALL AUTHENTICATED USERS can view available statuses
         [HttpGet("statuses")]
         public async Task<IActionResult> GetOpportunityStatuses()
         {
@@ -134,13 +140,11 @@ namespace gasopper_crm_server.Controllers
             return Ok(statuses);
         }
 
-        // ✅ ALL AUTHENTICATED USERS can trigger auto-status updates for their opportunities
         [HttpPost("{id}/update-status-from-stations")]
         public async Task<IActionResult> UpdateStatusFromStations(int id)
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             
-            // First check if user can access this opportunity
             var opportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
             if (opportunity == null)
                 return NotFound(new { message = "Opportunity not found or access denied" });
@@ -150,7 +154,6 @@ namespace gasopper_crm_server.Controllers
             if (!success)
                 return BadRequest(new { message = "Failed to update opportunity status" });
 
-            // Return updated opportunity
             var updatedOpportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
             return Ok(new { 
                 message = "Opportunity status updated based on station completion",

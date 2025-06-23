@@ -25,7 +25,7 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var users = await _userService.GetUsersAsync(currentUserId, currentUserRole);
-            
+
             return Ok(new { data = users, count = users.Count });
         }
 
@@ -35,10 +35,10 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var user = await _userService.GetUserByIdAsync(id, currentUserId, currentUserRole);
-            
+
             if (user == null)
                 return NotFound(new { message = "User not found or access denied" });
-            
+
             return Ok(user);
         }
 
@@ -52,10 +52,10 @@ namespace gasopper_crm_server.Controllers
 
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var user = await _userService.CreateUserAsync(createUserDto, currentUserId, currentUserRole);
-            
+
             if (user == null)
                 return BadRequest(new { message = "Unable to create user. Check role permissions and data validity." });
-            
+
             return CreatedAtAction(nameof(GetUser), new { id = user.UserId }, user);
         }
 
@@ -68,10 +68,10 @@ namespace gasopper_crm_server.Controllers
 
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var user = await _userService.UpdateUserAsync(id, updateUserDto, currentUserId, currentUserRole);
-            
+
             if (user == null)
                 return NotFound(new { message = "User not found or access denied" });
-            
+
             return Ok(user);
         }
 
@@ -82,10 +82,10 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var success = await _userService.DeleteUserAsync(id, currentUserId, currentUserRole);
-            
+
             if (!success)
                 return BadRequest(new { message = "Unable to delete user. Cannot delete self or user not found." });
-            
+
             return Ok(new { message = "User deactivated successfully" });
         }
 
@@ -96,7 +96,7 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, _) = GetCurrentUserInfo();
             var teamMembers = await _userService.GetMyTeamAsync(currentUserId);
-            
+
             return Ok(new { data = teamMembers, count = teamMembers.Count });
         }
 
@@ -108,15 +108,15 @@ namespace gasopper_crm_server.Controllers
                 return BadRequest(ModelState);
 
             var (currentUserId, _) = GetCurrentUserInfo();
-            
+
             if (id != currentUserId)
                 return Forbid("You can only change your own password");
 
             var success = await _userService.ChangePasswordAsync(id, changePasswordDto, currentUserId);
-            
+
             if (!success)
                 return BadRequest(new { message = "Password change failed. Check current password." });
-            
+
             return Ok(new { message = "Password changed successfully" });
         }
 
@@ -133,8 +133,33 @@ namespace gasopper_crm_server.Controllers
             var identity = HttpContext.User.Identity as ClaimsIdentity;
             var userId = int.Parse(identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
             var roleId = int.Parse(identity?.FindFirst("role_id")?.Value ?? "0");
-            
+
             return (userId, roleId);
         }
+        [HttpGet("stats")]
+public async Task<IActionResult> GetUserStats()
+{
+    try
+    {
+        var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+        var users = await _userService.GetUsersAsync(currentUserId, currentUserRole);
+        
+        var activeUsers = users.Count(u => u.IsActive);
+        
+        var response = new
+        {
+            total = users.Count,
+            active = activeUsers
+        };
+        
+        return Ok(response);
     }
+    catch (Exception ex)
+    {
+        return StatusCode(500, new { message = "Error fetching user statistics", error = ex.Message });
+    }
+}
+    }
+
+
 }
