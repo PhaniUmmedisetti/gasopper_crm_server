@@ -286,12 +286,13 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // FIXED: Opportunity stats that work for all roles
+        // Replace the GetOpportunityStatsAsync method in your OpportunityService.cs
+
         public async Task<OpportunityStatsDto> GetOpportunityStatsAsync(int currentUserId, int currentUserRole)
         {
             try
             {
-                // FIXED: Build base query with materialized team member IDs
+                // Build base query with materialized team member IDs
                 var query = _context.Opportunities
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
                     .Where(o => !o.is_deleted);
@@ -303,63 +304,77 @@ namespace gasopper_crm_server.Services
                 }
                 else if (currentUserRole == 2) // Manager can see own + team opportunities
                 {
-                    // FIXED: Materialize team member IDs first
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
                     teamMemberIds.Add(currentUserId); // Add manager's own ID
-
                     query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
                 // Admin can see all opportunities (no additional filtering)
 
-                var totalOpportunities = await query.CountAsync();
-                var activeOpportunities = await query.CountAsync(o => o.status_id == 1); // Active
-                var completeOpportunities = await query.CountAsync(o => o.status_id == 2); // Complete
+                var opportunities = await query.ToListAsync();
+                var totalOpportunities = opportunities.Count;
 
-                // Completion rate
+                // FIXED: Calculate active/complete based on gas station completion
+                var activeOpportunities = 0;
+                var completeOpportunities = 0;
+
+                foreach (var opportunity in opportunities)
+                {
+                    var stations = opportunity.GasStations.ToList();
+
+                    // If no stations, consider as active (needs stations)
+                    if (!stations.Any())
+                    {
+                        activeOpportunities++;
+                    }
+                    // If all stations are complete, mark as complete
+                    else if (stations.All(IsStationComplete))
+                    {
+                        completeOpportunities++;
+                    }
+                    // If any station is incomplete, mark as active
+                    else
+                    {
+                        activeOpportunities++;
+                    }
+                }
+
+                // Completion rate based on gas station completion
                 var completionRate = totalOpportunities > 0 ? Math.Round((double)completeOpportunities / totalOpportunities * 100, 1) : 0.0;
 
                 // Station statistics
-                var allStations = await query
-                    .SelectMany(o => o.GasStations.Where(gs => !gs.is_deleted))
-                    .ToListAsync();
-
+                var allStations = opportunities.SelectMany(o => o.GasStations).ToList();
                 var totalStations = allStations.Count;
-                var completeStations = allStations.Count(s => IsStationComplete(s));
+                var completeStations = allStations.Count(IsStationComplete);
                 var stationCompletionRate = totalStations > 0 ? Math.Round((double)completeStations / totalStations * 100, 1) : 0.0;
 
                 // Average stations per opportunity
                 var avgStationsPerOpp = totalOpportunities > 0 ? Math.Round((double)totalStations / totalOpportunities, 1) : 0.0;
 
-                // Average days to complete
-                var completeOppWithDates = await query
-                    .Where(o => o.status_id == 2)
-                    .Select(o => new { o.created_at, o.last_updated })
-                    .ToListAsync();
-
+                // Average days to complete (for completed opportunities)
+                var completedOpps = opportunities.Where(o => o.GasStations.Any() && o.GasStations.All(IsStationComplete)).ToList();
                 var avgDaysToComplete = 0;
-                if (completeOppWithDates.Any())
+                if (completedOpps.Any())
                 {
-                    var totalDays = completeOppWithDates
-                        .Sum(x => (x.last_updated - x.created_at).Days);
-                    avgDaysToComplete = totalDays / completeOppWithDates.Count;
+                    var totalDays = completedOpps.Sum(o => (DateTime.UtcNow - o.created_at).Days);
+                    avgDaysToComplete = totalDays / completedOpps.Count;
                 }
 
-                // Status breakdown
+                // Status breakdown based on actual completion
                 var statusBreakdown = new Dictionary<string, int>
-                {
-                    { "Active", activeOpportunities },
-                    { "Complete", completeOpportunities }
-                };
+        {
+            { "Active", activeOpportunities },
+            { "Complete", completeOpportunities }
+        };
 
                 return new OpportunityStatsDto
                 {
                     TotalOpportunities = totalOpportunities,
-                    ActiveOpportunities = activeOpportunities,
-                    CompleteOpportunities = completeOpportunities,
+                    ActiveOpportunities = activeOpportunities,      // Based on station completion
+                    CompleteOpportunities = completeOpportunities,  // Based on station completion
                     CompletionRate = completionRate,
                     TotalStations = totalStations,
                     CompleteStations = completeStations,
@@ -371,7 +386,6 @@ namespace gasopper_crm_server.Services
             }
             catch (Exception)
             {
-                // FIXED: Return empty stats on error
                 return new OpportunityStatsDto
                 {
                     TotalOpportunities = 0,
@@ -383,7 +397,7 @@ namespace gasopper_crm_server.Services
                     StationCompletionRate = 0.0,
                     AverageStationsPerOpportunity = 0.0,
                     AverageDaysToComplete = 0,
-                    StatusBreakdown = new Dictionary<string, int> { { "Active", 0 }, { "Complete", 0 } }
+                    StatusBreakdown = new Dictionary<string, int>()
                 };
             }
         }
@@ -420,7 +434,7 @@ namespace gasopper_crm_server.Services
                     return false;
 
                 var stations = opportunity.GasStations.ToList();
-                
+
                 // If no stations, keep as Active
                 if (!stations.Any())
                 {
@@ -540,7 +554,7 @@ namespace gasopper_crm_server.Services
                 IsComplete = IsStationComplete(s),
                 MissingFields = GetMissingFields(s),
                 CreatedAt = s.created_at,
-                
+
                 // Status fields for compatibility (using station type info)
                 StatusId = s.station_type_id ?? 0,
                 StatusName = s.StationType?.type_name ?? "",

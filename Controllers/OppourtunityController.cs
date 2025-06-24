@@ -1,3 +1,5 @@
+// REPLACE your entire OpportunitiesController.cs with this corrected version
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -23,7 +25,7 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var opportunities = await _opportunityService.GetOpportunitiesAsync(currentUserId, currentUserRole, includeDeleted);
-            
+
             return Ok(new { data = opportunities, count = opportunities.Count });
         }
 
@@ -32,10 +34,10 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var opportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
-            
+
             if (opportunity == null)
                 return NotFound(new { message = "Opportunity not found or access denied" });
-            
+
             return Ok(opportunity);
         }
 
@@ -47,10 +49,10 @@ namespace gasopper_crm_server.Controllers
 
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var opportunity = await _opportunityService.UpdateOpportunityAsync(id, updateDto, currentUserId, currentUserRole);
-            
+
             if (opportunity == null)
                 return NotFound(new { message = "Opportunity not found or access denied" });
-            
+
             return Ok(opportunity);
         }
 
@@ -62,10 +64,10 @@ namespace gasopper_crm_server.Controllers
 
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var opportunity = await _opportunityService.UpdateOpportunityStatusAsync(id, statusDto, currentUserId, currentUserRole);
-            
+
             if (opportunity == null)
-                return NotFound(new { message = "Opportunity not found, access denied, or invalid status (must be 1-Active or 2-Complete)" });
-            
+                return NotFound(new { message = "Opportunity not found, access denied, or invalid status" });
+
             return Ok(opportunity);
         }
 
@@ -78,11 +80,12 @@ namespace gasopper_crm_server.Controllers
 
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
             var opportunity = await _opportunityService.AssignOpportunityAsync(id, assignDto, currentUserId, currentUserRole);
-            
+
             if (opportunity == null)
                 return NotFound(new { message = "Opportunity not found or assignment not allowed" });
-            
-            return Ok(new { 
+
+            return Ok(new
+            {
                 message = "Opportunity assigned successfully",
                 opportunity = opportunity
             });
@@ -93,7 +96,7 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, _) = GetCurrentUserInfo();
             var opportunities = await _opportunityService.GetMyOpportunitiesAsync(currentUserId);
-            
+
             return Ok(new { data = opportunities, count = opportunities.Count });
         }
 
@@ -103,10 +106,11 @@ namespace gasopper_crm_server.Controllers
         {
             var (currentUserId, _) = GetCurrentUserInfo();
             var opportunities = await _opportunityService.GetTeamOpportunitiesAsync(currentUserId);
-            
+
             return Ok(new { data = opportunities, count = opportunities.Count });
         }
 
+        // FIXED: Opportunity Stats - Ensuring Business Logic Consistency
         [HttpGet("stats")]
         public async Task<IActionResult> GetOpportunityStats()
         {
@@ -114,17 +118,30 @@ namespace gasopper_crm_server.Controllers
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
                 var stats = await _opportunityService.GetOpportunityStatsAsync(currentUserId, currentUserRole);
-                
-                // Calculate estimated value from stations
-                var estimatedValue = stats.TotalStations * 50000; // $50k per station
-                
+
+                // CRITICAL: Return stats based on GAS STATION COMPLETION, not database status
                 var response = new
                 {
+                    // MAIN FIELDS (based on gas station completion logic)
+                    totalOpportunities = stats.TotalOpportunities,
+                    activeOpportunities = stats.ActiveOpportunities,      // Has incomplete gas stations
+                    completeOpportunities = stats.CompleteOpportunities,  // All gas stations complete
+                    completionRate = stats.CompletionRate,
+                    
+                    // GAS STATION METRICS (actual counts from database)
+                    totalStations = stats.TotalStations,
+                    completeStations = stats.CompleteStations,
+                    stationCompletionRate = stats.StationCompletionRate,
+                    averageStationsPerOpportunity = stats.AverageStationsPerOpportunity,
+                    averageDaysToComplete = stats.AverageDaysToComplete,
+                    statusBreakdown = stats.StatusBreakdown,
+
+                    // LEGACY FIELDS (for backward compatibility)
                     active = stats.ActiveOpportunities,
                     closed = stats.CompleteOpportunities,
-                    totalValue = estimatedValue
+                    totalValue = stats.TotalStations * 50000  // $50k per station
                 };
-                
+
                 return Ok(response);
             }
             catch (Exception ex)
@@ -144,18 +161,19 @@ namespace gasopper_crm_server.Controllers
         public async Task<IActionResult> UpdateStatusFromStations(int id)
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            
+
             var opportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
             if (opportunity == null)
                 return NotFound(new { message = "Opportunity not found or access denied" });
 
             var success = await _opportunityService.UpdateOpportunityStatusBasedOnStationsAsync(id);
-            
+
             if (!success)
                 return BadRequest(new { message = "Failed to update opportunity status" });
 
             var updatedOpportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
-            return Ok(new { 
+            return Ok(new
+            {
                 message = "Opportunity status updated based on station completion",
                 opportunity = updatedOpportunity
             });
@@ -166,7 +184,7 @@ namespace gasopper_crm_server.Controllers
             var identity = HttpContext.User.Identity as ClaimsIdentity;
             var userId = int.Parse(identity?.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? "0");
             var roleId = int.Parse(identity?.FindFirst("role_id")?.Value ?? "0");
-            
+
             return (userId, roleId);
         }
     }

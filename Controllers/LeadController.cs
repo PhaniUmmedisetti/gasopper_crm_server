@@ -135,6 +135,9 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = leads, count = leads.Count });
         }
 
+
+        // Replace the GetLeadStats method in your LeadsController.cs
+
         [HttpGet("stats")]
         public async Task<IActionResult> GetLeadStats()
         {
@@ -143,11 +146,19 @@ namespace gasopper_crm_server.Controllers
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
                 var stats = await _leadService.GetLeadStatsAsync(currentUserId, currentUserRole);
 
+                // Return FULL stats data that both dashboard and leads page can use
                 var response = new
                 {
+                    totalLeads = stats.TotalLeads,
+                    newLeads = stats.NewLeads,
+                    convertedLeads = stats.ConvertedLeads,  // CRITICAL: Include this field
+                    conversionRate = stats.ConversionRate,
+                    averageDaysToConvert = stats.AverageDaysToConvert,
+                    statusBreakdown = stats.StatusBreakdown,
+
+                    // LEGACY SUPPORT: Keep old field names for existing frontend code
                     total = stats.TotalLeads,
-                    newThisWeek = stats.NewLeads,  // FIXED: Using NewLeads instead of ActiveLeads
-                    conversionRate = stats.ConversionRate
+                    newThisWeek = stats.NewLeads,  // Note: This is actually "New Leads" not "New This Week"
                 };
 
                 return Ok(response);

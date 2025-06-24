@@ -1,3 +1,5 @@
+// REPLACE your entire GasStationsController.cs with this corrected version
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -18,21 +20,27 @@ namespace gasopper_crm_server.Controllers
             _gasStationService = gasStationService;
         }
 
+        // FIXED: Real gas station stats from database instead of fake hardcoded values
         [HttpGet("stats")]
-        public IActionResult GetGasStationStats()
+        public async Task<IActionResult> GetGasStationStats()
         {
             try
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
                 
-                // Role-based stats calculation
-                var baseTotal = currentUserRole == 1 ? 65 : currentUserRole == 2 ? 25 : 8;
-                var completed = (int)(baseTotal * 0.65);
+                // CRITICAL FIX: Get REAL stats from database, not fake hardcoded values
+                var stats = await _gasStationService.GetGasStationStatsAsync(currentUserId, currentUserRole);
                 
                 var response = new
                 {
-                    total = baseTotal,
-                    completed = completed
+                    total = stats.TotalStations,
+                    completed = stats.CompleteStations,
+                    active = stats.TotalStations - stats.CompleteStations,
+                    completionRate = stats.CompletionRate,
+                    
+                    // Additional useful metrics
+                    byOpportunity = stats.AverageStationsPerOpportunity,
+                    stationTypeBreakdown = stats.StationTypeBreakdown
                 };
                 
                 return Ok(response);
@@ -119,6 +127,17 @@ namespace gasopper_crm_server.Controllers
                 return NotFound(new { message = "Gas station not found or access denied" });
 
             return Ok(gasStation);
+        }
+
+        // FIXED: Use GetTeamGasStationsAsync instead of GetAllGasStationsAsync (Manager/Admin only)
+        [HttpGet("team-stations")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> GetTeamStations()
+        {
+            var (currentUserId, _) = GetCurrentUserInfo();
+            var gasStations = await _gasStationService.GetTeamGasStationsAsync(currentUserId);
+
+            return Ok(new { data = gasStations, count = gasStations.Count });
         }
 
         private (int userId, int roleId) GetCurrentUserInfo()
