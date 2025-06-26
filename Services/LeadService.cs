@@ -325,109 +325,116 @@ namespace gasopper_crm_server.Services
             return await GetLeadsAsync(managerId, 2, false); // Force manager view
         }
 
-        // Replace ONLY the GetLeadStatsAsync method in your LeadService.cs
 
-        public async Task<LeadStatsDto> GetLeadStatsAsync(int currentUserId, int currentUserRole)
+       // REPLACE ONLY the GetLeadStatsAsync method in your LeadService.cs
+
+public async Task<LeadStatsDto> GetLeadStatsAsync(int currentUserId, int currentUserRole)
+{
+    try
+    {
+        // Get accessible leads with SAME role-based filtering as your existing GetLeadsAsync method
+        var leadsQuery = _context.Leads
+            .Include(l => l.Status)
+            .Where(l => !l.is_deleted);
+
+        // Apply IDENTICAL role-based filtering as your existing GetLeadsAsync method  
+        if (currentUserRole == 3) // Salesperson can only see their own leads
         {
-            try
-            {
-                // Build base query with role-based filtering
-                var query = _context.Leads.Where(l => !l.is_deleted);
-
-                // Apply role-based filtering
-                if (currentUserRole == 3) // Salesperson
-                {
-                    query = query.Where(l => l.assigned_to == currentUserId);
-                }
-                else if (currentUserRole == 2) // Manager
-                {
-                    var teamMemberIds = await _context.Users
-                        .Where(u => u.manager_id == currentUserId && u.is_active)
-                        .Select(u => u.user_id)
-                        .ToListAsync();
-
-                    teamMemberIds.Add(currentUserId);
-                    query = query.Where(l => teamMemberIds.Contains(l.assigned_to));
-                }
-                // Admin sees all (no additional filtering)
-
-                // Get all leads data we need
-                var leadsWithOpportunities = await query
-                    .Include(l => l.Opportunity)
-                    .ToListAsync();
-
-                var totalLeads = leadsWithOpportunities.Count;
-
-                // CRITICAL FIX: Count converted leads by checking if they have opportunities
-                // This matches exactly what your frontend does: hasOpportunity: true
-                var convertedLeads = leadsWithOpportunities
-                    .Count(l => l.Opportunity != null && !l.Opportunity.is_deleted);
-
-                var newLeads = totalLeads - convertedLeads; // Simple calculation
-
-                var conversionRate = totalLeads > 0 ? Math.Round((double)convertedLeads / totalLeads * 100, 1) : 0.0;
-
-                // Calculate average days to convert
-                var avgDaysToConvert = 0;
-                try
-                {
-                    var convertedLeadsWithDates = leadsWithOpportunities
-                        .Where(l => l.Opportunity != null && !l.Opportunity.is_deleted)
-                        .ToList();
-
-                    if (convertedLeadsWithDates.Any())
-                    {
-                        var totalDays = convertedLeadsWithDates
-                            .Sum(l => (l.Opportunity.created_at - l.created_at).Days);
-                        avgDaysToConvert = totalDays / convertedLeadsWithDates.Count;
-                    }
-                }
-                catch
-                {
-                    avgDaysToConvert = 0;
-                }
-
-                // Status breakdown - matches frontend expectations
-                var statusBreakdown = new Dictionary<string, int>
-        {
-            { "New", newLeads },
-            { "Converted", convertedLeads }
-        };
-
-                return new LeadStatsDto
-                {
-                    TotalLeads = totalLeads,
-                    NewLeads = newLeads,
-                    ConvertedLeads = convertedLeads, // This now matches exactly what frontend counts
-                    ConversionRate = conversionRate,
-                    AverageDaysToConvert = avgDaysToConvert,
-                    StatusBreakdown = statusBreakdown
-                };
-            }
-            catch (Exception ex)
-            {
-                // Log the exception for debugging
-                Console.WriteLine($"Error in GetLeadStatsAsync: {ex.Message}");
-
-                // Return empty stats if error occurs
-                return new LeadStatsDto
-                {
-                    TotalLeads = 0,
-                    NewLeads = 0,
-                    ConvertedLeads = 0,
-                    ConversionRate = 0.0,
-                    AverageDaysToConvert = 0,
-                    StatusBreakdown = new Dictionary<string, int>()
-                };
-            }
+            leadsQuery = leadsQuery.Where(l => l.assigned_to == currentUserId);
         }
+        else if (currentUserRole == 2) // Manager can see own + team leads
+        {
+            var teamMemberIds = await _context.Users
+                .Where(u => u.manager_id == currentUserId && u.is_active)
+                .Select(u => u.user_id)
+                .ToListAsync();
+
+            teamMemberIds.Add(currentUserId);
+            leadsQuery = leadsQuery.Where(l => teamMemberIds.Contains(l.assigned_to));
+        }
+        // Admin can see all leads (no additional filtering)
+
+        // Calculate lead statistics from accessible leads
+        var totalLeads = await leadsQuery.CountAsync();
+
+        // FIXED: Count VALID converted opportunities from opportunities table with SAME role-based filtering
+        var opportunitiesQuery = _context.Opportunities
+            .Where(o => !o.is_deleted)
+            .Where(o => o.lead_id != null) // CRITICAL: Only count opportunities with valid lead_id
+            .Join(_context.Leads.Where(l => !l.is_deleted), // CRITICAL: Join with non-deleted leads
+                  o => o.lead_id,
+                  l => l.lead_id,
+                  (o, l) => o); // This ensures we only count opportunities with existing, non-deleted leads
+
+        // Apply SAME role-based filtering to opportunities
+        if (currentUserRole == 3) // Salesperson can only see their own opportunities
+        {
+            opportunitiesQuery = opportunitiesQuery.Where(o => o.assigned_to == currentUserId);
+        }
+        else if (currentUserRole == 2) // Manager can see own + team opportunities
+        {
+            var teamMemberIds = await _context.Users
+                .Where(u => u.manager_id == currentUserId && u.is_active)
+                .Select(u => u.user_id)
+                .ToListAsync();
+
+            teamMemberIds.Add(currentUserId);
+            opportunitiesQuery = opportunitiesQuery.Where(o => teamMemberIds.Contains(o.assigned_to));
+        }
+        // Admin can see all opportunities (no additional filtering)
+
+        var convertedOpportunities = await opportunitiesQuery.CountAsync();
+
+        // Calculate conversion rate based on actual VALID opportunity count
+        var conversionRate = totalLeads > 0 ? Math.Round((double)convertedOpportunities / totalLeads * 100, 1) : 0.0;
+
+        // Calculate average days to convert - only for VALID conversions
+        var conversions = await (from l in leadsQuery
+                                 join o in opportunitiesQuery on l.lead_id equals o.lead_id
+                                 select new
+                                 {
+                                     LeadCreated = l.created_at,
+                                     OpportunityCreated = o.created_at
+                                 }).ToListAsync();
+
+        var averageDaysToConvert = conversions.Any()
+            ? Math.Round(conversions.Average(c => (c.OpportunityCreated - c.LeadCreated).TotalDays), 1)
+            : 0.0;
+
+        // Status breakdown from accessible leads
+        var statusBreakdown = await leadsQuery
+            .GroupBy(l => l.Status.status_name)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Status ?? "", x => x.Count);
+
+        return new LeadStatsDto
+        {
+            TotalLeads = totalLeads,
+            ConvertedLeads = convertedOpportunities,  // FIXED: Use VALID opportunity count from opportunities table
+            ConversionRate = conversionRate,
+            AverageDaysToConvert = (int)Math.Round(averageDaysToConvert),
+            StatusBreakdown = statusBreakdown
+        };
+    }
+    catch (Exception)
+    {
+        return new LeadStatsDto
+        {
+            TotalLeads = 0,
+            ConvertedLeads = 0,
+            ConversionRate = 0.0,
+            AverageDaysToConvert = 0,
+            StatusBreakdown = new Dictionary<string, int>()
+        };
+    }
+}
 
         public async Task<List<object>> GetLeadStatusesAsync()
         {
             try
             {
                 return await _context.LeadStatuses
-                    .OrderBy(s => s.status_id) // Use status_id instead of status_order
+                    .OrderBy(s => s.status_id) 
                     .Select(s => new
                     {
                         id = s.status_id,

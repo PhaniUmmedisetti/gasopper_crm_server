@@ -286,24 +286,23 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // Replace the GetOpportunityStatsAsync method in your OpportunityService.cs
-
         public async Task<OpportunityStatsDto> GetOpportunityStatsAsync(int currentUserId, int currentUserRole)
         {
             try
             {
-                // Build base query with materialized team member IDs
+                // FIXED: Use SAME role-based filtering as GetOpportunitiesAsync method
                 var query = _context.Opportunities
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
                     .Where(o => !o.is_deleted);
 
-                // Apply role-based filtering
+                // Apply IDENTICAL role-based filtering as your existing GetOpportunitiesAsync method
                 if (currentUserRole == 3) // Salesperson can only see their own opportunities
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
                 else if (currentUserRole == 2) // Manager can see own + team opportunities
                 {
+                    // FIXED: Materialize team member IDs first (same as your existing method)
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
                         .Select(u => u.user_id)
@@ -317,7 +316,7 @@ namespace gasopper_crm_server.Services
                 var opportunities = await query.ToListAsync();
                 var totalOpportunities = opportunities.Count;
 
-                // FIXED: Calculate active/complete based on gas station completion
+                // Keep your existing calculation logic - just fixed the filtering above
                 var activeOpportunities = 0;
                 var completeOpportunities = 0;
 
