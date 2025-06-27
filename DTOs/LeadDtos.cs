@@ -121,7 +121,7 @@ namespace gasopper_crm_server.DTOs
 
         // Opportunity information (if converted)
         public int? OpportunityId { get; set; }
-        public bool HasOpportunity { get; set; } 
+        public bool HasOpportunity { get; set; }
 
         public string? OpportunityStatus { get; set; } // Updated from Stage to Status
 
@@ -151,22 +151,40 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string OwnerName { get; set; } = string.Empty;
 
+        // UPDATED: Split address fields instead of single OwnerAddress
         [Required]
-        public string OwnerAddress { get; set; } = string.Empty;
+        [MaxLength(200)]
+        public string AddressLine1 { get; set; } = string.Empty;
 
-        // Assignment (optional - defaults to current user if not specified)
+        [MaxLength(200)]
+        public string? AddressLine2 { get; set; }
+
+        [Required]
+        [MaxLength(100)]
+        public string City { get; set; } = string.Empty;
+
+        [Required]
+        [MaxLength(100)]
+        public string State { get; set; } = string.Empty;
+
+        [Required]
+        [MaxLength(20)]
+        public string PostalCode { get; set; } = string.Empty;
+
+        [MaxLength(100)]
+        public string Country { get; set; } = "United States";
+
         public int? AssignedTo { get; set; }
     }
 
-    // SIMPLIFIED - Only New vs Converted stats
     public class LeadStatsDto
     {
         public int TotalLeads { get; set; }
-        public int NewLeads { get; set; }           // Status 1 (New)
-        public int ConvertedLeads { get; set; }     // Status 2 (Converted)
+        public int NewLeads { get; set; }
+        public int ConvertedLeads { get; set; }
         public double ConversionRate { get; set; }
         public int AverageDaysToConvert { get; set; }
         public Dictionary<string, int> StatusBreakdown { get; set; } = new Dictionary<string, int>();
-        // StatusBreakdown will only contain "New" and "Converted"
+
     }
 }

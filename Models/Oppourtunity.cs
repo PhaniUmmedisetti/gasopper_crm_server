@@ -9,7 +9,6 @@ namespace gasopper_crm_server.Models
         [Key]
         public int opportunity_id { get; set; }
         
-        // Foreign key to leads (1:1 relationship)
         [Required]
         public int lead_id { get; set; }
         
@@ -17,21 +16,38 @@ namespace gasopper_crm_server.Models
         [MaxLength(100)]
         public string owner_name { get; set; } = string.Empty;
         
-        [Required]
-        public string owner_address { get; set; } = string.Empty;
+        // KEEP OLD FIELD for backward compatibility (if you want)
+        public string? owner_address { get; set; }
         
-        // Status tracking (replaces old stage_id)
+        // ADD NEW FIELDS for split address
+        [MaxLength(200)]
+        public string? address_line_1 { get; set; }
+        
+        [MaxLength(200)]
+        public string? address_line_2 { get; set; }
+        
+        [MaxLength(100)]
+        public string? city { get; set; }
+        
+        [MaxLength(100)]
+        public string? state { get; set; }
+        
+        [MaxLength(20)]
+        public string? postal_code { get; set; }
+        
+        [MaxLength(100)]
+        public string? country { get; set; } = "United States";
+        
         [Required]
         public int status_id { get; set; }
         
-        // Assignment tracking
         [Required]
         public int assigned_to { get; set; }
         
         [Required]
         public int created_by { get; set; }
         
-        // Navigation properties
+        // Navigation properties (unchanged)
         [ForeignKey("lead_id")]
         public virtual Lead Lead { get; set; } = null!;
         
@@ -44,7 +60,6 @@ namespace gasopper_crm_server.Models
         [ForeignKey("created_by")]
         public virtual User CreatedByUser { get; set; } = null!;
         
-        // One opportunity can have many gas stations
         public virtual ICollection<GasStation> GasStations { get; set; } = new List<GasStation>();
     }
 }
