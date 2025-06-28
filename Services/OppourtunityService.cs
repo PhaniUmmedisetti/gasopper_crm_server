@@ -32,7 +32,6 @@ namespace gasopper_crm_server.Services
         {
             try
             {
-                // ✅ ENHANCED: Include gas station created by user
                 var query = _context.Opportunities
                     .Include(o => o.Lead)
                     .Include(o => o.OpportunityStatus)
@@ -41,27 +40,26 @@ namespace gasopper_crm_server.Services
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
                         .ThenInclude(gs => gs.StationType)
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
-                        .ThenInclude(gs => gs.CreatedByUser) // ✅ ADDED: Include station creator
-                    .Where(o => o.opportunity_id == opportunityId && !o.is_deleted);
+                        .ThenInclude(gs => gs.CreatedByUser)
+                    .Where(o => o.opportunity_id == opportunityId && !o.is_deleted)
+                    .Where(o => o.Lead != null && !o.Lead.is_deleted); // Exclude opportunities with deleted leads
 
-                // Apply role-based filtering with MATERIALIZED team member IDs
-                if (currentUserRole == 3) // Salesperson can only see their own opportunities
+                // Apply role-based filtering
+                if (currentUserRole == 3) // Salesperson - own only
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2) // Manager can see own + team opportunities
+                else if (currentUserRole == 2) // Manager - own + team
                 {
-                    // Materialize team member IDs first
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
-                    teamMemberIds.Add(currentUserId); // Add manager's own ID
-
+                    teamMemberIds.Add(currentUserId);
                     query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
-                // Admin can see all opportunities (no additional filtering)
+                // Admin sees all
 
                 var opportunity = await query.FirstOrDefaultAsync();
 
@@ -76,17 +74,16 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // FIXED: This MUST return empty list for salespeople with no opportunities, NOT throw 401
         public async Task<List<OpportunityListDto>> GetOpportunitiesAsync(int currentUserId, int currentUserRole, bool includeDeleted = false)
         {
             try
             {
-                // FIXED: Build base query
                 var query = _context.Opportunities
                     .Include(o => o.Lead)
                     .Include(o => o.OpportunityStatus)
                     .Include(o => o.AssignedToUser)
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
+                    .Where(o => o.Lead != null && !o.Lead.is_deleted) // FIXED: Exclude opportunities with deleted leads
                     .AsQueryable();
 
                 if (!includeDeleted)
@@ -94,24 +91,22 @@ namespace gasopper_crm_server.Services
                     query = query.Where(o => !o.is_deleted);
                 }
 
-                // FIXED: Apply role-based filtering with MATERIALIZED team member IDs
-                if (currentUserRole == 3) // Salesperson can only see their own opportunities
+                // Apply role-based filtering
+                if (currentUserRole == 3) // Salesperson - own only
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2) // Manager can see own + team opportunities
+                else if (currentUserRole == 2) // Manager - own + team
                 {
-                    // FIXED: Materialize team member IDs first
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
-                    teamMemberIds.Add(currentUserId); // Add manager's own ID
-
+                    teamMemberIds.Add(currentUserId);
                     query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
-                // Admin can see all opportunities (no additional filtering)
+                // Admin sees all
 
                 var opportunities = await query
                     .OrderByDescending(o => o.last_updated)
@@ -128,7 +123,6 @@ namespace gasopper_crm_server.Services
             }
             catch (Exception)
             {
-                // FIXED: Return empty list on error, not null
                 return new List<OpportunityListDto>();
             }
         }
@@ -142,8 +136,32 @@ namespace gasopper_crm_server.Services
                     return null;
 
                 // Update basic fields
-                opportunity.owner_name = updateDto.OwnerName ?? "";
-                opportunity.owner_address = updateDto.OwnerAddress ?? "";
+                if (!string.IsNullOrEmpty(updateDto.OwnerName))
+                    opportunity.owner_name = updateDto.OwnerName;
+
+                // Handle old OwnerAddress field for backward compatibility
+                if (!string.IsNullOrEmpty(updateDto.OwnerAddress))
+                {
+                    opportunity.owner_address = updateDto.OwnerAddress;
+                    if (string.IsNullOrEmpty(opportunity.address_line_1))
+                    {
+                        opportunity.address_line_1 = updateDto.OwnerAddress;
+                    }
+                }
+
+                // Update split address fields (takes priority)
+                if (!string.IsNullOrEmpty(updateDto.AddressLine1))
+                    opportunity.address_line_1 = updateDto.AddressLine1;
+                if (updateDto.AddressLine2 != null)
+                    opportunity.address_line_2 = updateDto.AddressLine2;
+                if (!string.IsNullOrEmpty(updateDto.City))
+                    opportunity.city = updateDto.City;
+                if (!string.IsNullOrEmpty(updateDto.State))
+                    opportunity.state = updateDto.State;
+                if (!string.IsNullOrEmpty(updateDto.PostalCode))
+                    opportunity.postal_code = updateDto.PostalCode;
+                if (!string.IsNullOrEmpty(updateDto.Country))
+                    opportunity.country = updateDto.Country;
 
                 // Handle assignment changes (Admin/Manager only)
                 if (updateDto.AssignedTo.HasValue && currentUserRole <= 2)
@@ -201,8 +219,8 @@ namespace gasopper_crm_server.Services
             {
                 var updateDto = new UpdateOpportunityDto
                 {
-                    OwnerName = "", // Will be filled from existing data
-                    OwnerAddress = "", // Will be filled from existing data
+                    OwnerName = "",
+                    OwnerAddress = "",
                     AssignedTo = assignDto.AssignedTo
                 };
 
@@ -232,6 +250,7 @@ namespace gasopper_crm_server.Services
                     .Include(o => o.AssignedToUser)
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
                     .Where(o => o.assigned_to == currentUserId && !o.is_deleted)
+                    .Where(o => o.Lead != null && !o.Lead.is_deleted) // Exclude opportunities with deleted leads
                     .OrderByDescending(o => o.last_updated)
                     .ToListAsync();
 
@@ -254,13 +273,12 @@ namespace gasopper_crm_server.Services
         {
             try
             {
-                // FIXED: Materialize team member IDs first
                 var teamMemberIds = await _context.Users
                     .Where(u => u.manager_id == managerId && u.is_active)
                     .Select(u => u.user_id)
                     .ToListAsync();
 
-                teamMemberIds.Add(managerId); // Include manager's own opportunities
+                teamMemberIds.Add(managerId);
 
                 var opportunities = await _context.Opportunities
                     .Include(o => o.Lead)
@@ -268,6 +286,7 @@ namespace gasopper_crm_server.Services
                     .Include(o => o.AssignedToUser)
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
                     .Where(o => teamMemberIds.Contains(o.assigned_to) && !o.is_deleted)
+                    .Where(o => o.Lead != null && !o.Lead.is_deleted) // Exclude opportunities with deleted leads
                     .OrderByDescending(o => o.last_updated)
                     .ToListAsync();
 
@@ -290,33 +309,32 @@ namespace gasopper_crm_server.Services
         {
             try
             {
-                // FIXED: Use SAME role-based filtering as GetOpportunitiesAsync method
                 var query = _context.Opportunities
+                    .Include(o => o.Lead)
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
-                    .Where(o => !o.is_deleted);
+                    .Where(o => !o.is_deleted)
+                    .Where(o => o.Lead != null && !o.Lead.is_deleted); // FIXED: Exclude opportunities with deleted leads
 
-                // Apply IDENTICAL role-based filtering as your existing GetOpportunitiesAsync method
-                if (currentUserRole == 3) // Salesperson can only see their own opportunities
+                // Apply role-based filtering
+                if (currentUserRole == 3) // Salesperson - own only
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2) // Manager can see own + team opportunities
+                else if (currentUserRole == 2) // Manager - own + team
                 {
-                    // FIXED: Materialize team member IDs first (same as your existing method)
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
-                    teamMemberIds.Add(currentUserId); // Add manager's own ID
+                    teamMemberIds.Add(currentUserId);
                     query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
-                // Admin can see all opportunities (no additional filtering)
+                // Admin sees all
 
                 var opportunities = await query.ToListAsync();
                 var totalOpportunities = opportunities.Count;
 
-                // Keep your existing calculation logic - just fixed the filtering above
                 var activeOpportunities = 0;
                 var completeOpportunities = 0;
 
@@ -324,36 +342,29 @@ namespace gasopper_crm_server.Services
                 {
                     var stations = opportunity.GasStations.ToList();
 
-                    // If no stations, consider as active (needs stations)
                     if (!stations.Any())
                     {
                         activeOpportunities++;
                     }
-                    // If all stations are complete, mark as complete
                     else if (stations.All(IsStationComplete))
                     {
                         completeOpportunities++;
                     }
-                    // If any station is incomplete, mark as active
                     else
                     {
                         activeOpportunities++;
                     }
                 }
 
-                // Completion rate based on gas station completion
                 var completionRate = totalOpportunities > 0 ? Math.Round((double)completeOpportunities / totalOpportunities * 100, 1) : 0.0;
 
-                // Station statistics
                 var allStations = opportunities.SelectMany(o => o.GasStations).ToList();
                 var totalStations = allStations.Count;
                 var completeStations = allStations.Count(IsStationComplete);
                 var stationCompletionRate = totalStations > 0 ? Math.Round((double)completeStations / totalStations * 100, 1) : 0.0;
 
-                // Average stations per opportunity
                 var avgStationsPerOpp = totalOpportunities > 0 ? Math.Round((double)totalStations / totalOpportunities, 1) : 0.0;
 
-                // Average days to complete (for completed opportunities)
                 var completedOpps = opportunities.Where(o => o.GasStations.Any() && o.GasStations.All(IsStationComplete)).ToList();
                 var avgDaysToComplete = 0;
                 if (completedOpps.Any())
@@ -362,18 +373,17 @@ namespace gasopper_crm_server.Services
                     avgDaysToComplete = totalDays / completedOpps.Count;
                 }
 
-                // Status breakdown based on actual completion
                 var statusBreakdown = new Dictionary<string, int>
-        {
-            { "Active", activeOpportunities },
-            { "Complete", completeOpportunities }
-        };
+                {
+                    { "Active", activeOpportunities },
+                    { "Complete", completeOpportunities }
+                };
 
                 return new OpportunityStatsDto
                 {
                     TotalOpportunities = totalOpportunities,
-                    ActiveOpportunities = activeOpportunities,      // Based on station completion
-                    CompleteOpportunities = completeOpportunities,  // Based on station completion
+                    ActiveOpportunities = activeOpportunities,
+                    CompleteOpportunities = completeOpportunities,
                     CompletionRate = completionRate,
                     TotalStations = totalStations,
                     CompleteStations = completeStations,
@@ -420,7 +430,6 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // Auto-update opportunity status based on gas station completion
         public async Task<bool> UpdateOpportunityStatusBasedOnStationsAsync(int opportunityId)
         {
             try
@@ -434,17 +443,14 @@ namespace gasopper_crm_server.Services
 
                 var stations = opportunity.GasStations.ToList();
 
-                // If no stations, keep as Active
                 if (!stations.Any())
                 {
                     opportunity.status_id = 1; // Active
                 }
-                // If all stations are complete, mark as Complete
                 else if (stations.All(IsStationComplete))
                 {
                     opportunity.status_id = 2; // Complete
                 }
-                // If any station is incomplete, mark as Active
                 else
                 {
                     opportunity.status_id = 1; // Active
@@ -459,23 +465,21 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // FIXED: Async method for access checking
         private async Task<bool> CanAccessOpportunityAsync(Opportunity opportunity, int currentUserId, int currentUserRole)
         {
             try
             {
-                if (currentUserRole == 1) // Admin can access all
+                if (currentUserRole == 1) // Admin
                     return true;
 
-                if (currentUserRole == 3) // Salesperson can only access their own
+                if (currentUserRole == 3) // Salesperson
                     return opportunity.assigned_to == currentUserId;
 
-                if (currentUserRole == 2) // Manager can access own + team
+                if (currentUserRole == 2) // Manager
                 {
                     if (opportunity.assigned_to == currentUserId)
                         return true;
 
-                    // Check if assigned user is in manager's team
                     var assignedUser = await _context.Users.FindAsync(opportunity.assigned_to);
                     return assignedUser?.manager_id == currentUserId;
                 }
@@ -488,14 +492,11 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // ✅ ENHANCED: Check if a gas station is complete (all required fields filled)
         private static bool IsStationComplete(GasStation station)
         {
-            // Required fields: station_name, address (always required)
             var hasRequiredFields = !string.IsNullOrWhiteSpace(station.station_name)
                                    && !string.IsNullOrWhiteSpace(station.address);
 
-            // Optional fields for completion: poc_name, poc_phone, poc_email, number_of_pumps, number_of_employees, station_type_id
             var hasOptionalFields = !string.IsNullOrWhiteSpace(station.poc_name)
                                    && !string.IsNullOrWhiteSpace(station.poc_phone)
                                    && !string.IsNullOrWhiteSpace(station.poc_email)
@@ -506,7 +507,6 @@ namespace gasopper_crm_server.Services
             return hasRequiredFields && hasOptionalFields;
         }
 
-        // ✅ ENHANCED: Get missing fields for a gas station
         private static List<string> GetMissingFields(GasStation station)
         {
             var missing = new List<string>();
@@ -531,7 +531,6 @@ namespace gasopper_crm_server.Services
             return missing;
         }
 
-        // ✅ ENHANCED: Map to opportunity response with complete gas station details
         private OpportunityResponseDto MapToOpportunityResponseDto(Opportunity opportunity)
         {
             var stations = opportunity.GasStations.ToList();
@@ -553,12 +552,31 @@ namespace gasopper_crm_server.Services
                 IsComplete = IsStationComplete(s),
                 MissingFields = GetMissingFields(s),
                 CreatedAt = s.created_at,
-
-                // Status fields for compatibility (using station type info)
                 StatusId = s.station_type_id ?? 0,
                 StatusName = s.StationType?.type_name ?? "",
                 Description = s.notes ?? ""
-            }).OrderBy(s => s.StationName).ToList(); // ✅ ADDED: Order by station name
+            }).OrderBy(s => s.StationName).ToList();
+
+            // Create combined address for legacy support
+            var combinedAddress = "";
+            if (!string.IsNullOrEmpty(opportunity.address_line_1))
+            {
+                combinedAddress = opportunity.address_line_1;
+                if (!string.IsNullOrEmpty(opportunity.address_line_2))
+                    combinedAddress += ", " + opportunity.address_line_2;
+                if (!string.IsNullOrEmpty(opportunity.city))
+                    combinedAddress += ", " + opportunity.city;
+                if (!string.IsNullOrEmpty(opportunity.state))
+                    combinedAddress += ", " + opportunity.state;
+                if (!string.IsNullOrEmpty(opportunity.postal_code))
+                    combinedAddress += " " + opportunity.postal_code;
+                if (!string.IsNullOrEmpty(opportunity.country) && opportunity.country != "United States")
+                    combinedAddress += ", " + opportunity.country;
+            }
+            else
+            {
+                combinedAddress = opportunity.owner_address ?? "";
+            }
 
             return new OpportunityResponseDto
             {
@@ -568,7 +586,13 @@ namespace gasopper_crm_server.Services
                 LeadEmail = opportunity.Lead?.email ?? "",
                 LeadPhone = opportunity.Lead?.phone_number ?? "",
                 OwnerName = opportunity.owner_name,
-                OwnerAddress = opportunity.owner_address,
+                AddressLine1 = opportunity.address_line_1 ?? "",
+                AddressLine2 = opportunity.address_line_2,
+                City = opportunity.city ?? "",
+                State = opportunity.state ?? "",
+                PostalCode = opportunity.postal_code ?? "",
+                Country = opportunity.country ?? "United States",
+                OwnerAddress = combinedAddress,
                 StatusId = opportunity.status_id,
                 StatusName = opportunity.OpportunityStatus?.status_name ?? "",
                 StatusDescription = opportunity.OpportunityStatus?.description ?? "",
@@ -580,10 +604,10 @@ namespace gasopper_crm_server.Services
                 CompleteStations = completeStations,
                 IncompleteStations = incompleteStations,
                 CompletionPercentage = completionPercentage,
-                Stations = stationDtos, // ✅ NESTED GAS STATIONS WITH COMPLETE DETAILS
+                Stations = stationDtos,
                 CreatedAt = opportunity.created_at,
                 LastUpdated = opportunity.last_updated,
-                IsDeleted = opportunity.is_deleted // ✅ ADDED: Missing field
+                IsDeleted = opportunity.is_deleted
             };
         }
 
@@ -598,7 +622,8 @@ namespace gasopper_crm_server.Services
                 OpportunityId = opportunity.opportunity_id,
                 LeadName = opportunity.Lead?.name ?? "",
                 OwnerName = opportunity.owner_name,
-                StatusId = opportunity.status_id, // ✅ ADDED: Missing statusId
+                StatusId = opportunity.status_id,
+                StatusName = opportunity.OpportunityStatus?.status_name ?? "",
                 AssignedToName = $"{opportunity.AssignedToUser?.first_name ?? ""} {opportunity.AssignedToUser?.last_name ?? ""}".Trim(),
                 TotalStations = stations.Count,
                 CompleteStations = completeStations,

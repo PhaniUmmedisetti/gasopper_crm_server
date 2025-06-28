@@ -75,7 +75,6 @@ namespace gasopper_crm_server.Services
                     .Include(l => l.AssignedToUser)
                     .Include(l => l.CreatedByUser)
                     .Include(l => l.Status)
-                    .Include(l => l.Opportunity)
                     .Where(l => l.lead_id == leadId && !l.is_deleted);
 
                 // Apply role-based filtering
@@ -98,6 +97,28 @@ namespace gasopper_crm_server.Services
                 var lead = await query.FirstOrDefaultAsync();
                 if (lead == null) return null;
 
+                // FIXED: Check for opportunity dynamically with role-based filtering
+                var hasOpportunity = await _context.Opportunities
+                    .Where(o => o.lead_id == leadId && !o.is_deleted)
+                    .Where(o => currentUserRole == 1 || // Admin sees all
+                               (currentUserRole == 3 && o.assigned_to == currentUserId) || // Salesperson - own only
+                               (currentUserRole == 2 && ( // Manager - own + team
+                                   o.assigned_to == currentUserId ||
+                                   _context.Users.Any(u => u.user_id == o.assigned_to && u.manager_id == currentUserId && u.is_active)
+                               )))
+                    .AnyAsync();
+
+                var opportunity = hasOpportunity ? await _context.Opportunities
+                    .Include(o => o.OpportunityStatus)
+                    .Where(o => o.lead_id == leadId && !o.is_deleted)
+                    .Where(o => currentUserRole == 1 || // Admin sees all
+                               (currentUserRole == 3 && o.assigned_to == currentUserId) || // Salesperson - own only
+                               (currentUserRole == 2 && ( // Manager - own + team
+                                   o.assigned_to == currentUserId ||
+                                   _context.Users.Any(u => u.user_id == o.assigned_to && u.manager_id == currentUserId && u.is_active)
+                               )))
+                    .FirstOrDefaultAsync() : null;
+
                 return new LeadResponseDto
                 {
                     LeadId = lead.lead_id,
@@ -118,9 +139,9 @@ namespace gasopper_crm_server.Services
                     CreatedByName = $"{lead.CreatedByUser?.first_name ?? ""} {lead.CreatedByUser?.last_name ?? ""}".Trim(),
                     CreatedAt = lead.created_at,
                     LastUpdated = lead.last_updated,
-                    OpportunityId = lead.Opportunity?.opportunity_id,
-                    HasOpportunity = lead.Opportunity != null,
-                    OpportunityStatus = lead.Opportunity?.OpportunityStatus?.status_name ?? "",
+                    OpportunityId = opportunity?.opportunity_id,
+                    HasOpportunity = hasOpportunity, // FIXED: Dynamic calculation
+                    OpportunityStatus = opportunity?.OpportunityStatus?.status_name ?? "",
                     IsDeleted = lead.is_deleted
                 };
             }
@@ -130,14 +151,17 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // TEMPORARY DEBUG VERSION - Replace GetLeadsAsync method with this:
+
         public async Task<List<LeadListResponseDto>> GetLeadsAsync(int currentUserId, int currentUserRole, bool includeDeleted = false)
         {
             try
             {
+                Console.WriteLine($"[DEBUG] GetLeadsAsync - UserId: {currentUserId}, Role: {currentUserRole}");
+
                 var query = _context.Leads
                     .Include(l => l.AssignedToUser)
                     .Include(l => l.Status)
-                    .Include(l => l.Opportunity)
                     .AsQueryable();
 
                 if (!includeDeleted)
@@ -164,23 +188,77 @@ namespace gasopper_crm_server.Services
                     .OrderByDescending(l => l.last_updated)
                     .ToListAsync();
 
-                return leads.Select(l => new LeadListResponseDto
+                Console.WriteLine($"[DEBUG] Found {leads.Count} leads for user");
+
+                // SIMPLIFIED: Get ALL opportunities without role filtering first to debug
+                var allOpportunities = await _context.Opportunities
+                    .Where(o => !o.is_deleted) // FIXED: Removed lead_id null check since it's not nullable
+                    .Select(o => new { o.lead_id, o.assigned_to, o.opportunity_id })
+                    .ToListAsync();
+
+                Console.WriteLine($"[DEBUG] Found {allOpportunities.Count} total opportunities");
+                Console.WriteLine($"[DEBUG] Opportunity lead_ids: [{string.Join(", ", allOpportunities.Select(o => o.lead_id))}]");
+
+                // Get opportunities that match current user's access
+                var accessibleOpportunityLeadIds = new List<int>();
+
+                if (currentUserRole == 1) // Admin - all opportunities
                 {
-                    LeadId = l.lead_id,
-                    Name = l.name,
-                    Email = l.email,
-                    PhoneNumber = l.phone_number,
-                    ExpectedStations = l.expected_stations,
-                    StatusName = l.Status?.status_name ?? "",
-                    AssignedToName = $"{l.AssignedToUser?.first_name ?? ""} {l.AssignedToUser?.last_name ?? ""}".Trim(),
-                    CreatedAt = l.created_at,
-                    LastUpdated = l.last_updated,
-                    HasOpportunity = l.Opportunity != null,
-                    IsDeleted = l.is_deleted
+                    accessibleOpportunityLeadIds = allOpportunities.Select(o => o.lead_id).ToList(); // FIXED: Removed .Value
+                }
+                else if (currentUserRole == 3) // Salesperson - own only
+                {
+                    accessibleOpportunityLeadIds = allOpportunities
+                        .Where(o => o.assigned_to == currentUserId)
+                        .Select(o => o.lead_id) // FIXED: Removed .Value
+                        .ToList();
+                }
+                else if (currentUserRole == 2) // Manager - own + team
+                {
+                    var teamIds = await _context.Users
+                        .Where(u => u.manager_id == currentUserId && u.is_active)
+                        .Select(u => u.user_id)
+                        .ToListAsync();
+                    teamIds.Add(currentUserId);
+
+                    accessibleOpportunityLeadIds = allOpportunities
+                        .Where(o => teamIds.Contains(o.assigned_to))
+                        .Select(o => o.lead_id) // FIXED: Removed .Value
+                        .ToList();
+                }
+
+                Console.WriteLine($"[DEBUG] Accessible opportunity lead_ids for role {currentUserRole}: [{string.Join(", ", accessibleOpportunityLeadIds)}]");
+                Console.WriteLine($"[DEBUG] Lead IDs: [{string.Join(", ", leads.Select(l => l.lead_id))}]");
+
+                var result = leads.Select(l =>
+                {
+                    var hasOpportunity = accessibleOpportunityLeadIds.Contains(l.lead_id);
+                    Console.WriteLine($"[DEBUG] Lead {l.lead_id} ({l.name}) - hasOpportunity: {hasOpportunity}");
+
+                    return new LeadListResponseDto
+                    {
+                        LeadId = l.lead_id,
+                        Name = l.name,
+                        Email = l.email,
+                        PhoneNumber = l.phone_number,
+                        ExpectedStations = l.expected_stations,
+                        StatusName = l.Status?.status_name ?? "",
+                        AssignedToName = $"{l.AssignedToUser?.first_name ?? ""} {l.AssignedToUser?.last_name ?? ""}".Trim(),
+                        CreatedAt = l.created_at,
+                        LastUpdated = l.last_updated,
+                        HasOpportunity = hasOpportunity,
+                        IsDeleted = l.is_deleted
+                    };
                 }).ToList();
+
+                var convertedCount = result.Count(r => r.HasOpportunity);
+                Console.WriteLine($"[DEBUG] Final result: {result.Count} leads, {convertedCount} converted");
+
+                return result;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] GetLeadsAsync failed: {ex.Message}");
                 return new List<LeadListResponseDto>();
             }
         }

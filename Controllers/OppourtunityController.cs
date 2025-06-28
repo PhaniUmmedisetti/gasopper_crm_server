@@ -1,5 +1,3 @@
-// REPLACE your entire OpportunitiesController.cs with this corrected version
-
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -23,22 +21,60 @@ namespace gasopper_crm_server.Controllers
         [HttpGet]
         public async Task<IActionResult> GetOpportunities([FromQuery] bool includeDeleted = false)
         {
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var opportunities = await _opportunityService.GetOpportunitiesAsync(currentUserId, currentUserRole, includeDeleted);
+            try
+            {
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                
+                // ADDED: Debug logging
+                Console.WriteLine($"[DEBUG] GetOpportunities called - UserId: {currentUserId}, Role: {currentUserRole}, IncludeDeleted: {includeDeleted}");
+                
+                var opportunities = await _opportunityService.GetOpportunitiesAsync(currentUserId, currentUserRole, includeDeleted);
+                
+                // ADDED: Debug logging
+                Console.WriteLine($"[DEBUG] Opportunities returned: {opportunities?.Count ?? 0}");
+                if (opportunities?.Any() == true)
+                {
+                    Console.WriteLine($"[DEBUG] First opportunity: OpportunityId={opportunities.First().OpportunityId}, LeadName={opportunities.First().LeadName}");
+                }
 
-            return Ok(new { data = opportunities, count = opportunities.Count });
+                return Ok(new { data = opportunities, count = opportunities.Count });
+            }
+            catch (Exception ex)
+            {
+                // ADDED: Debug logging
+                Console.WriteLine($"[ERROR] GetOpportunities failed: {ex.Message}");
+                Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+                
+                return StatusCode(500, new { message = "Error fetching opportunities", error = ex.Message });
+            }
         }
 
         [HttpGet("{id}")]
         public async Task<IActionResult> GetOpportunity(int id)
         {
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var opportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
+            try
+            {
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                
+                // ADDED: Debug logging
+                Console.WriteLine($"[DEBUG] GetOpportunity called - OpportunityId: {id}, UserId: {currentUserId}, Role: {currentUserRole}");
+                
+                var opportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
 
-            if (opportunity == null)
-                return NotFound(new { message = "Opportunity not found or access denied" });
+                if (opportunity == null)
+                {
+                    Console.WriteLine($"[DEBUG] Opportunity {id} not found or access denied");
+                    return NotFound(new { message = "Opportunity not found or access denied" });
+                }
 
-            return Ok(opportunity);
+                Console.WriteLine($"[DEBUG] Opportunity found: {opportunity.OpportunityId} - {opportunity.LeadName}");
+                return Ok(opportunity);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetOpportunity failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error fetching opportunity", error = ex.Message });
+            }
         }
 
         [HttpPut("{id}")]
@@ -94,41 +130,65 @@ namespace gasopper_crm_server.Controllers
         [HttpGet("my-opportunities")]
         public async Task<IActionResult> GetMyOpportunities()
         {
-            var (currentUserId, _) = GetCurrentUserInfo();
-            var opportunities = await _opportunityService.GetMyOpportunitiesAsync(currentUserId);
-
-            return Ok(new { data = opportunities, count = opportunities.Count });
+            try
+            {
+                var (currentUserId, _) = GetCurrentUserInfo();
+                
+                Console.WriteLine($"[DEBUG] GetMyOpportunities called - UserId: {currentUserId}");
+                
+                var opportunities = await _opportunityService.GetMyOpportunitiesAsync(currentUserId);
+                
+                Console.WriteLine($"[DEBUG] My opportunities returned: {opportunities?.Count ?? 0}");
+                
+                return Ok(new { data = opportunities, count = opportunities.Count });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetMyOpportunities failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error fetching opportunities", error = ex.Message });
+            }
         }
 
         [HttpGet("team-opportunities")]
         [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> GetTeamOpportunities()
         {
-            var (currentUserId, _) = GetCurrentUserInfo();
-            var opportunities = await _opportunityService.GetTeamOpportunitiesAsync(currentUserId);
-
-            return Ok(new { data = opportunities, count = opportunities.Count });
+            try
+            {
+                var (currentUserId, _) = GetCurrentUserInfo();
+                
+                Console.WriteLine($"[DEBUG] GetTeamOpportunities called - ManagerId: {currentUserId}");
+                
+                var opportunities = await _opportunityService.GetTeamOpportunitiesAsync(currentUserId);
+                
+                Console.WriteLine($"[DEBUG] Team opportunities returned: {opportunities?.Count ?? 0}");
+                
+                return Ok(new { data = opportunities, count = opportunities.Count });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetTeamOpportunities failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error fetching team opportunities", error = ex.Message });
+            }
         }
 
-        // FIXED: Opportunity Stats - Ensuring Business Logic Consistency
         [HttpGet("stats")]
         public async Task<IActionResult> GetOpportunityStats()
         {
             try
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                
+                Console.WriteLine($"[DEBUG] GetOpportunityStats called - UserId: {currentUserId}, Role: {currentUserRole}");
+                
                 var stats = await _opportunityService.GetOpportunityStatsAsync(currentUserId, currentUserRole);
 
-                // CRITICAL: Return stats based on GAS STATION COMPLETION, not database status
                 var response = new
                 {
-                    // MAIN FIELDS (based on gas station completion logic)
                     totalOpportunities = stats.TotalOpportunities,
-                    activeOpportunities = stats.ActiveOpportunities,      // Has incomplete gas stations
-                    completeOpportunities = stats.CompleteOpportunities,  // All gas stations complete
+                    activeOpportunities = stats.ActiveOpportunities,
+                    completeOpportunities = stats.CompleteOpportunities,
                     completionRate = stats.CompletionRate,
-                    
-                    // GAS STATION METRICS (actual counts from database)
                     totalStations = stats.TotalStations,
                     completeStations = stats.CompleteStations,
                     stationCompletionRate = stats.StationCompletionRate,
@@ -136,16 +196,19 @@ namespace gasopper_crm_server.Controllers
                     averageDaysToComplete = stats.AverageDaysToComplete,
                     statusBreakdown = stats.StatusBreakdown,
 
-                    // LEGACY FIELDS (for backward compatibility)
+                    // Legacy support
+                    total = stats.TotalOpportunities,
                     active = stats.ActiveOpportunities,
-                    closed = stats.CompleteOpportunities,
-                    totalValue = stats.TotalStations * 50000  // $50k per station
+                    complete = stats.CompleteOpportunities
                 };
 
+                Console.WriteLine($"[DEBUG] Stats: Total={stats.TotalOpportunities}, Active={stats.ActiveOpportunities}, Complete={stats.CompleteOpportunities}");
+                
                 return Ok(response);
             }
             catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] GetOpportunityStats failed: {ex.Message}");
                 return StatusCode(500, new { message = "Error fetching opportunity statistics", error = ex.Message });
             }
         }
@@ -155,28 +218,6 @@ namespace gasopper_crm_server.Controllers
         {
             var statuses = await _opportunityService.GetOpportunityStatusesAsync();
             return Ok(statuses);
-        }
-
-        [HttpPost("{id}/update-status-from-stations")]
-        public async Task<IActionResult> UpdateStatusFromStations(int id)
-        {
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-
-            var opportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
-            if (opportunity == null)
-                return NotFound(new { message = "Opportunity not found or access denied" });
-
-            var success = await _opportunityService.UpdateOpportunityStatusBasedOnStationsAsync(id);
-
-            if (!success)
-                return BadRequest(new { message = "Failed to update opportunity status" });
-
-            var updatedOpportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
-            return Ok(new
-            {
-                message = "Opportunity status updated based on station completion",
-                opportunity = updatedOpportunity
-            });
         }
 
         private (int userId, int roleId) GetCurrentUserInfo()

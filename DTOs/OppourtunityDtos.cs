@@ -8,8 +8,28 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string OwnerName { get; set; } = string.Empty;
 
+        // UPDATED: Split address fields to match the new Opportunity model
         [Required]
-        public string OwnerAddress { get; set; } = string.Empty;
+        [MaxLength(200)]
+        public string AddressLine1 { get; set; } = string.Empty;
+
+        [MaxLength(200)]
+        public string? AddressLine2 { get; set; }
+
+        [Required]
+        [MaxLength(100)]
+        public string City { get; set; } = string.Empty;
+
+        [Required]
+        [MaxLength(100)]
+        public string State { get; set; } = string.Empty;
+
+        [Required]
+        [MaxLength(20)]
+        public string PostalCode { get; set; } = string.Empty;
+
+        [MaxLength(100)]
+        public string Country { get; set; } = "United States";
 
         public int? AssignedTo { get; set; }
     }
@@ -19,7 +39,27 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string? OwnerName { get; set; }
 
+        // BACKWARD COMPATIBILITY: Keep the old field for existing code
         public string? OwnerAddress { get; set; }
+
+        // NEW: Split address fields
+        [MaxLength(200)]
+        public string? AddressLine1 { get; set; }
+
+        [MaxLength(200)]
+        public string? AddressLine2 { get; set; }
+
+        [MaxLength(100)]
+        public string? City { get; set; }
+
+        [MaxLength(100)]
+        public string? State { get; set; }
+
+        [MaxLength(20)]
+        public string? PostalCode { get; set; }
+
+        [MaxLength(100)]
+        public string? Country { get; set; }
 
         public int? AssignedTo { get; set; }
     }
@@ -37,7 +77,7 @@ namespace gasopper_crm_server.DTOs
         public int AssignedTo { get; set; }
     }
 
-    // ✅ COMPLETE OpportunityResponseDto - ALL fields your service expects
+    // FIXED: Complete OpportunityResponseDto with proper address fields
     public class OpportunityResponseDto
     {
         public int OpportunityId { get; set; }
@@ -46,6 +86,16 @@ namespace gasopper_crm_server.DTOs
         public string LeadEmail { get; set; } = string.Empty;
         public string LeadPhone { get; set; } = string.Empty;
         public string OwnerName { get; set; } = string.Empty;
+        
+        // UPDATED: Split address fields to match new model
+        public string AddressLine1 { get; set; } = string.Empty;
+        public string? AddressLine2 { get; set; }
+        public string City { get; set; } = string.Empty;
+        public string State { get; set; } = string.Empty;
+        public string PostalCode { get; set; } = string.Empty;
+        public string Country { get; set; } = string.Empty;
+        
+        // LEGACY: Keep old field for backward compatibility
         public string OwnerAddress { get; set; } = string.Empty;
 
         // Status information
@@ -59,7 +109,7 @@ namespace gasopper_crm_server.DTOs
         public int CreatedBy { get; set; }
         public string CreatedByName { get; set; } = string.Empty;
 
-        // ✅ GAS STATION FIELDS - Required by your service
+        // Gas station fields
         public List<OpportunityStationDto> Stations { get; set; } = new List<OpportunityStationDto>();
         public int TotalStations { get; set; }
         public int CompleteStations { get; set; }
@@ -72,17 +122,17 @@ namespace gasopper_crm_server.DTOs
         public bool IsDeleted { get; set; }
     }
 
-    // ✅ FIXED OpportunityListDto - Added missing StatusId property
+    // FIXED: Complete OpportunityListDto with all required fields
     public class OpportunityListDto
     {
         public int OpportunityId { get; set; }
         public string LeadName { get; set; } = string.Empty;
         public string OwnerName { get; set; } = string.Empty;
-        public int StatusId { get; set; } // ✅ ADDED: This was missing and causing the error
+        public int StatusId { get; set; } // FIXED: This was missing
         public string StatusName { get; set; } = string.Empty;
         public string AssignedToName { get; set; } = string.Empty;
 
-        // ✅ GAS STATION FIELDS - Required by your service
+        // Gas station fields
         public int TotalStations { get; set; }
         public int CompleteStations { get; set; }
         public double CompletionPercentage { get; set; }
@@ -91,7 +141,7 @@ namespace gasopper_crm_server.DTOs
         public DateTime LastUpdated { get; set; }
     }
 
-    // ✅ COMPLETE OpportunityStatsDto - ALL fields your service expects
+    // FIXED: Complete OpportunityStatsDto
     public class OpportunityStatsDto
     {
         public int TotalOpportunities { get; set; }
@@ -99,7 +149,7 @@ namespace gasopper_crm_server.DTOs
         public int CompleteOpportunities { get; set; }
         public double CompletionRate { get; set; }
 
-        // ✅ GAS STATION METRICS - Required by your service
+        // Gas station metrics
         public int TotalStations { get; set; }
         public int CompleteStations { get; set; }
         public double StationCompletionRate { get; set; }
@@ -116,7 +166,7 @@ namespace gasopper_crm_server.DTOs
         public string Description { get; set; } = string.Empty;
     }
 
-    // ✅ COMPLETE OpportunityStationDto - ALL fields your service expects
+    // FIXED: Complete OpportunityStationDto
     public class OpportunityStationDto
     {
         public int StationId { get; set; }
@@ -132,7 +182,7 @@ namespace gasopper_crm_server.DTOs
         public List<string> MissingFields { get; set; } = new List<string>();
         public DateTime CreatedAt { get; set; }
 
-        // Also include status fields for compatibility
+        // Status fields for compatibility
         public int StatusId { get; set; }
         public string StatusName { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
