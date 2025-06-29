@@ -12,15 +12,15 @@ namespace gasopper_crm_server.Data
         // Core entities
         public DbSet<Role> Roles { get; set; }
         public DbSet<User> Users { get; set; }
-        
+
         // Lead management
         public DbSet<LeadStatus> LeadStatuses { get; set; }
         public DbSet<Lead> Leads { get; set; }
-        
+
         // Opportunity management (UPDATED)
         public DbSet<OpportunityStatus> OpportunityStatuses { get; set; }  // NEW - Simple status system
         public DbSet<Opportunity> Opportunities { get; set; }
-        
+
         // Gas station management
         public DbSet<StationType> StationTypes { get; set; }
         public DbSet<GasStation> GasStations { get; set; }
@@ -136,13 +136,23 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.status_name).IsUnique();
             });
 
-            // Configure Opportunity entity (UPDATED)
+            // Configure Opportunity entity (UPDATED - REMOVED owner_address)
             modelBuilder.Entity<Opportunity>(entity =>
             {
                 entity.ToTable("opportunities");
                 entity.HasKey(e => e.opportunity_id);
                 entity.Property(e => e.owner_name).IsRequired().HasMaxLength(100);
-                entity.Property(e => e.owner_address).IsRequired();
+
+                // REMOVED: owner_address configuration since the property is being removed
+
+                // NEW: Configure split address fields
+                entity.Property(e => e.address_line_1).HasMaxLength(200);
+                entity.Property(e => e.address_line_2).HasMaxLength(200);
+                entity.Property(e => e.city).HasMaxLength(100);
+                entity.Property(e => e.state).HasMaxLength(100);
+                entity.Property(e => e.postal_code).HasMaxLength(20);
+                entity.Property(e => e.country).HasMaxLength(100).HasDefaultValue("United States");
+
                 entity.Property(e => e.is_deleted).HasDefaultValue(false);
                 entity.Property(e => e.created_at).HasDefaultValueSql("NOW()");
                 entity.Property(e => e.last_updated).HasDefaultValueSql("NOW()");
@@ -153,6 +163,7 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.created_by);
                 entity.HasIndex(e => e.status_id);
                 entity.HasIndex(e => e.is_deleted);
+                entity.HasIndex(e => e.postal_code); // NEW: Index for station code generation
 
                 // Relationships - EXPLICITLY configure to avoid shadow properties
                 entity.HasOne(e => e.Lead)
@@ -186,13 +197,17 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.type_name).IsUnique();
             });
 
-            // Configure GasStation entity
+            // Configure GasStation entity (UPDATED WITH STATION CODE)
             modelBuilder.Entity<GasStation>(entity =>
             {
                 entity.ToTable("gas_stations");
                 entity.HasKey(e => e.station_id);
                 entity.Property(e => e.station_name).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.address).IsRequired();
+
+                // NEW: Configure station_code field
+                entity.Property(e => e.station_code).IsRequired().HasMaxLength(20);
+
                 entity.Property(e => e.poc_name).HasMaxLength(100);
                 entity.Property(e => e.poc_phone).HasMaxLength(20);
                 entity.Property(e => e.poc_email).HasMaxLength(320);
@@ -206,6 +221,7 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.created_by);
                 entity.HasIndex(e => e.station_type_id);
                 entity.HasIndex(e => e.is_deleted);
+                entity.HasIndex(e => e.station_code); // NEW: Index for performance and uniqueness
 
                 // Relationships - EXPLICITLY configure to avoid shadow properties
                 entity.HasOne(e => e.Opportunity)

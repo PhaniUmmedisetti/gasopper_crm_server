@@ -151,7 +151,7 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string OwnerName { get; set; } = string.Empty;
 
-        // UPDATED: Split address fields instead of single OwnerAddress
+        // UPDATED: Use split address fields instead of single OwnerAddress
         [Required]
         [MaxLength(200)]
         public string AddressLine1 { get; set; } = string.Empty;

@@ -19,6 +19,11 @@ namespace gasopper_crm_server.Models
         [Required]
         public string address { get; set; } = string.Empty;
         
+        // AUTO-GENERATED STATION CODE - NEW FIELD
+        [Required]
+        [MaxLength(20)]
+        public string station_code { get; set; } = string.Empty;
+        
         // Point of Contact (all nullable)
         [MaxLength(100)]
         public string? poc_name { get; set; }

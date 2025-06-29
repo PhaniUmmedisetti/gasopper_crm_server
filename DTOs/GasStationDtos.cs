@@ -1,3 +1,6 @@
+// REPLACE your entire GasStationDtos.cs with this version
+// CHANGED: Using stationTypeId instead of stationTypeName in responses
+
 using System.ComponentModel.DataAnnotations;
 
 namespace gasopper_crm_server.DTOs
@@ -33,6 +36,8 @@ namespace gasopper_crm_server.DTOs
         public int? StationTypeId { get; set; }
 
         public string? Notes { get; set; }
+        
+        // NOTE: StationCode is NOT included here - it's auto-generated
     }
 
     public class UpdateGasStationDto
@@ -64,6 +69,8 @@ namespace gasopper_crm_server.DTOs
         public int? StationTypeId { get; set; }
 
         public string? Notes { get; set; }
+        
+        // NOTE: StationCode is NOT included here - it's immutable after creation
     }
 
     public class GasStationResponseDto
@@ -72,6 +79,9 @@ namespace gasopper_crm_server.DTOs
         public int OpportunityId { get; set; }
         public string StationName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
+        
+        // AUTO-GENERATED STATION CODE
+        public string StationCode { get; set; } = string.Empty;
 
         // POC information
         public string? PocName { get; set; }
@@ -81,8 +91,9 @@ namespace gasopper_crm_server.DTOs
         // Station details
         public int? NumberOfPumps { get; set; }
         public int? NumberOfEmployees { get; set; }
+        
+        // CHANGED: Return stationTypeId instead of stationTypeName
         public int? StationTypeId { get; set; }
-        public string? StationTypeName { get; set; }
         public string? Notes { get; set; }
 
         // Completion tracking
@@ -100,14 +111,29 @@ namespace gasopper_crm_server.DTOs
         public string OpportunityOwnerName { get; set; } = string.Empty;
     }
 
+    // UPDATED: Using stationTypeId for faster frontend referencing
     public class GasStationListResponseDto
     {
         public int StationId { get; set; }
         public int OpportunityId { get; set; }
         public string StationName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
+        
+        // AUTO-GENERATED STATION CODE
+        public string StationCode { get; set; } = string.Empty;
+        
+        // POC information
         public string? PocName { get; set; }
-        public string? StationTypeName { get; set; }
+        public string? PocPhone { get; set; }
+        public string? PocEmail { get; set; }
+        
+        // Station details
+        public int? NumberOfPumps { get; set; }
+        public int? NumberOfEmployees { get; set; }
+        
+        // CHANGED: Return stationTypeId instead of stationTypeName for faster referencing
+        public int? StationTypeId { get; set; }
+        
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
         public string CreatedByName { get; set; } = string.Empty;
@@ -120,7 +146,12 @@ namespace gasopper_crm_server.DTOs
         public int StationId { get; set; }
         public string StationName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
-        public string? StationTypeName { get; set; }
+        
+        // AUTO-GENERATED STATION CODE
+        public string StationCode { get; set; } = string.Empty;
+        
+        // CHANGED: Use stationTypeId for consistency
+        public int? StationTypeId { get; set; }
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
     }

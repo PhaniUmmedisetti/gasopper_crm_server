@@ -17,7 +17,7 @@ namespace gasopper_crm_server.Models
         public string owner_name { get; set; } = string.Empty;
 
         // FIXED: Make owner_address nullable since new conversions use split fields
-        public string? owner_address { get; set; }
+        // public string? owner_address { get; set; }
 
         // NEW: Split address fields
         [MaxLength(200)]

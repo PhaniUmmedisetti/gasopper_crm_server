@@ -139,17 +139,9 @@ namespace gasopper_crm_server.Services
                 if (!string.IsNullOrEmpty(updateDto.OwnerName))
                     opportunity.owner_name = updateDto.OwnerName;
 
-                // Handle old OwnerAddress field for backward compatibility
-                if (!string.IsNullOrEmpty(updateDto.OwnerAddress))
-                {
-                    opportunity.owner_address = updateDto.OwnerAddress;
-                    if (string.IsNullOrEmpty(opportunity.address_line_1))
-                    {
-                        opportunity.address_line_1 = updateDto.OwnerAddress;
-                    }
-                }
+                // REMOVED: owner_address handling - no longer exists in model
 
-                // Update split address fields (takes priority)
+                // Update split address fields
                 if (!string.IsNullOrEmpty(updateDto.AddressLine1))
                     opportunity.address_line_1 = updateDto.AddressLine1;
                 if (updateDto.AddressLine2 != null)
@@ -219,8 +211,6 @@ namespace gasopper_crm_server.Services
             {
                 var updateDto = new UpdateOpportunityDto
                 {
-                    OwnerName = "",
-                    OwnerAddress = "",
                     AssignedTo = assignDto.AssignedTo
                 };
 
@@ -230,7 +220,12 @@ namespace gasopper_crm_server.Services
                     return null;
 
                 updateDto.OwnerName = existing.owner_name;
-                updateDto.OwnerAddress = existing.owner_address;
+                updateDto.AddressLine1 = existing.address_line_1;
+                updateDto.AddressLine2 = existing.address_line_2;
+                updateDto.City = existing.city;
+                updateDto.State = existing.state;
+                updateDto.PostalCode = existing.postal_code;
+                updateDto.Country = existing.country;
 
                 return await UpdateOpportunityAsync(opportunityId, updateDto, currentUserId, currentUserRole);
             }
@@ -543,6 +538,7 @@ namespace gasopper_crm_server.Services
                 StationId = s.station_id,
                 StationName = s.station_name,
                 Address = s.address,
+                StationCode = s.station_code, // Include station code
                 PocName = s.poc_name,
                 PocPhone = s.poc_phone,
                 PocEmail = s.poc_email,
@@ -573,10 +569,6 @@ namespace gasopper_crm_server.Services
                 if (!string.IsNullOrEmpty(opportunity.country) && opportunity.country != "United States")
                     combinedAddress += ", " + opportunity.country;
             }
-            else
-            {
-                combinedAddress = opportunity.owner_address ?? "";
-            }
 
             return new OpportunityResponseDto
             {
@@ -592,7 +584,7 @@ namespace gasopper_crm_server.Services
                 State = opportunity.state ?? "",
                 PostalCode = opportunity.postal_code ?? "",
                 Country = opportunity.country ?? "United States",
-                OwnerAddress = combinedAddress,
+                OwnerAddress = combinedAddress, // FIXED: Use combined address instead of referencing owner_address
                 StatusId = opportunity.status_id,
                 StatusName = opportunity.OpportunityStatus?.status_name ?? "",
                 StatusDescription = opportunity.OpportunityStatus?.description ?? "",
