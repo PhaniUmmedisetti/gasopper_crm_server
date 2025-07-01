@@ -370,7 +370,7 @@ namespace gasopper_crm_server.Services
                 if (lead.Opportunity != null && !lead.Opportunity.is_deleted)
                     return null;
 
-                // UPDATED: Create opportunity with split address fields
+                // UPDATED: Create opportunity with split address fields AND actual_stations
                 var opportunity = new Opportunity
                 {
                     lead_id = leadId,
@@ -381,6 +381,7 @@ namespace gasopper_crm_server.Services
                     state = convertDto.State, // UPDATED
                     postal_code = convertDto.PostalCode, // UPDATED
                     country = convertDto.Country ?? "United States", // UPDATED
+                    actual_stations = convertDto.ActualStations, // ADDED: Save actual stations count
                     assigned_to = convertDto.AssignedTo ?? lead.assigned_to,
                     created_by = currentUserId,
                     status_id = 1 // Active

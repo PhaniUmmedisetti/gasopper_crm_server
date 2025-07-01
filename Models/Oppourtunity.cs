@@ -38,6 +38,10 @@ namespace gasopper_crm_server.Models
         [MaxLength(100)]
         public string? country { get; set; } = "United States";
 
+        // ADDED: Actual number of stations (user input during conversion)
+        [Required]
+        public int actual_stations { get; set; } = 0;
+
         [Required]
         public int status_id { get; set; }
 

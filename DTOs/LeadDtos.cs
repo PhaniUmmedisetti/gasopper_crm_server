@@ -174,6 +174,11 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string Country { get; set; } = "United States";
 
+        // ADDED: Actual number of stations field
+        [Required]
+        [Range(1, int.MaxValue, ErrorMessage = "Actual stations must be greater than 0")]
+        public int ActualStations { get; set; }
+
         public int? AssignedTo { get; set; }
     }
 

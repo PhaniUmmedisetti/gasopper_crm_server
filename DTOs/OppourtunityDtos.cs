@@ -31,6 +31,11 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string Country { get; set; } = "United States";
 
+        // ADDED: Actual number of stations field
+        [Required]
+        [Range(1, int.MaxValue, ErrorMessage = "Actual stations must be greater than 0")]
+        public int ActualStations { get; set; }
+
         public int? AssignedTo { get; set; }
     }
 
@@ -61,40 +66,12 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string? Country { get; set; }
 
+        // ADDED: Actual number of stations field (optional for updates)
+        [Range(1, int.MaxValue, ErrorMessage = "Actual stations must be greater than 0")]
+        public int? ActualStations { get; set; }
+
         public int? AssignedTo { get; set; }
     }
-
-    // public class ConvertLeadToOpportunityDto
-    // {
-    //     [Required]
-    //     [MaxLength(100)]
-    //     public string OwnerName { get; set; } = string.Empty;
-
-    //     // UPDATED: Use split address fields instead of single OwnerAddress
-    //     [Required]
-    //     [MaxLength(200)]
-    //     public string AddressLine1 { get; set; } = string.Empty;
-
-    //     [MaxLength(200)]
-    //     public string? AddressLine2 { get; set; }
-
-    //     [Required]
-    //     [MaxLength(100)]
-    //     public string City { get; set; } = string.Empty;
-
-    //     [Required]
-    //     [MaxLength(100)]
-    //     public string State { get; set; } = string.Empty;
-
-    //     [Required]
-    //     [MaxLength(20)]
-    //     public string PostalCode { get; set; } = string.Empty;
-
-    //     [MaxLength(100)]
-    //     public string Country { get; set; } = "United States";
-
-    //     public int? AssignedTo { get; set; }
-    // }
 
     public class UpdateOpportunityStatusDto
     {
@@ -130,6 +107,9 @@ namespace gasopper_crm_server.DTOs
         // LEGACY: Combined address for backward compatibility (computed from split fields)
         public string OwnerAddress { get; set; } = string.Empty;
 
+        // ADDED: Actual number of stations (user input)
+        public int ActualStations { get; set; }
+
         // Status information
         public int StatusId { get; set; }
         public string StatusName { get; set; } = string.Empty;
@@ -163,6 +143,9 @@ namespace gasopper_crm_server.DTOs
         public int StatusId { get; set; }
         public string StatusName { get; set; } = string.Empty;
         public string AssignedToName { get; set; } = string.Empty;
+
+        // ADDED: Actual number of stations (user input)
+        public int ActualStations { get; set; }
 
         // Gas station fields
         public int TotalStations { get; set; }

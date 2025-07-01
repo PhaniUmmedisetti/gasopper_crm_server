@@ -136,7 +136,7 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.status_name).IsUnique();
             });
 
-            // Configure Opportunity entity (UPDATED - REMOVED owner_address)
+            // Configure Opportunity entity (UPDATED - REMOVED owner_address + ADDED actual_stations)
             modelBuilder.Entity<Opportunity>(entity =>
             {
                 entity.ToTable("opportunities");
@@ -152,6 +152,9 @@ namespace gasopper_crm_server.Data
                 entity.Property(e => e.state).HasMaxLength(100);
                 entity.Property(e => e.postal_code).HasMaxLength(20);
                 entity.Property(e => e.country).HasMaxLength(100).HasDefaultValue("United States");
+
+                // ADDED: Configure actual_stations field
+                entity.Property(e => e.actual_stations).IsRequired().HasDefaultValue(0);
 
                 entity.Property(e => e.is_deleted).HasDefaultValue(false);
                 entity.Property(e => e.created_at).HasDefaultValueSql("NOW()");
@@ -244,6 +247,10 @@ namespace gasopper_crm_server.Data
             // Configure check constraints
             modelBuilder.Entity<Lead>()
                 .ToTable(t => t.HasCheckConstraint("CK_leads_expected_stations", "expected_stations > 0"));
+
+            // ADDED: Check constraint for actual_stations
+            modelBuilder.Entity<Opportunity>()
+                .ToTable(t => t.HasCheckConstraint("CK_opportunities_actual_stations", "actual_stations > 0"));
 
             modelBuilder.Entity<GasStation>()
                 .ToTable(t => t.HasCheckConstraint("CK_gas_stations_number_of_pumps", "number_of_pumps > 0"))

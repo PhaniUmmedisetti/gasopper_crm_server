@@ -155,6 +155,10 @@ namespace gasopper_crm_server.Services
                 if (!string.IsNullOrEmpty(updateDto.Country))
                     opportunity.country = updateDto.Country;
 
+                // ADDED: Update actual stations count
+                if (updateDto.ActualStations.HasValue)
+                    opportunity.actual_stations = updateDto.ActualStations.Value;
+
                 // Handle assignment changes (Admin/Manager only)
                 if (updateDto.AssignedTo.HasValue && currentUserRole <= 2)
                 {
@@ -226,6 +230,7 @@ namespace gasopper_crm_server.Services
                 updateDto.State = existing.state;
                 updateDto.PostalCode = existing.postal_code;
                 updateDto.Country = existing.country;
+                updateDto.ActualStations = existing.actual_stations; // ADDED: Preserve actual stations
 
                 return await UpdateOpportunityAsync(opportunityId, updateDto, currentUserId, currentUserRole);
             }
@@ -584,7 +589,8 @@ namespace gasopper_crm_server.Services
                 State = opportunity.state ?? "",
                 PostalCode = opportunity.postal_code ?? "",
                 Country = opportunity.country ?? "United States",
-                OwnerAddress = combinedAddress, // FIXED: Use combined address instead of referencing owner_address
+                OwnerAddress = combinedAddress,
+                ActualStations = opportunity.actual_stations, // ADDED: Include actual stations count
                 StatusId = opportunity.status_id,
                 StatusName = opportunity.OpportunityStatus?.status_name ?? "",
                 StatusDescription = opportunity.OpportunityStatus?.description ?? "",
@@ -617,6 +623,7 @@ namespace gasopper_crm_server.Services
                 StatusId = opportunity.status_id,
                 StatusName = opportunity.OpportunityStatus?.status_name ?? "",
                 AssignedToName = $"{opportunity.AssignedToUser?.first_name ?? ""} {opportunity.AssignedToUser?.last_name ?? ""}".Trim(),
+                ActualStations = opportunity.actual_stations, // ADDED: Include actual stations count
                 TotalStations = stations.Count,
                 CompleteStations = completeStations,
                 CompletionPercentage = completionPercentage,
