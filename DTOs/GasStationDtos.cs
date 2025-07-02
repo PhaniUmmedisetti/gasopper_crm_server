@@ -127,6 +127,12 @@ namespace gasopper_crm_server.DTOs
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
 
+        // NEW: Sign-off information
+        public bool IsSignedOff { get; set; }
+        public DateTime? SignedOffAt { get; set; }
+        public bool CanSignOff { get; set; }  // Helper field for frontend
+        public bool CanEdit { get; set; }     // Helper field for frontend
+
         // Audit information
         public int CreatedBy { get; set; }
         public string CreatedByName { get; set; } = string.Empty;
@@ -170,6 +176,13 @@ namespace gasopper_crm_server.DTOs
         
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
+        
+        // NEW: Sign-off information
+        public bool IsSignedOff { get; set; }
+        public DateTime? SignedOffAt { get; set; }
+        public bool CanSignOff { get; set; }  // Helper field for frontend
+        public bool CanEdit { get; set; }     // Helper field for frontend
+        
         public string CreatedByName { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
         public string OpportunityLeadName { get; set; } = string.Empty;
@@ -195,6 +208,10 @@ namespace gasopper_crm_server.DTOs
         public int? StationTypeId { get; set; }
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
+        
+        // NEW: Sign-off information
+        public bool IsSignedOff { get; set; }
+        public DateTime? SignedOffAt { get; set; }
     }
 
     public class StationTypeDto
@@ -210,8 +227,15 @@ namespace gasopper_crm_server.DTOs
         public int IncompleteStations { get; set; }
         public double CompletionRate { get; set; }
         public int AverageStationsPerOpportunity { get; set; }
+        
+        // NEW: Sign-off statistics
+        public int SignedOffStations { get; set; }
+        public int PendingSignOffStations { get; set; } // Complete but not signed off
+        public double SignOffRate { get; set; }
+        
         public Dictionary<string, int> StationTypeBreakdown { get; set; } = new Dictionary<string, int>();
         public Dictionary<string, int> CompletionBreakdown { get; set; } = new Dictionary<string, int>();
+        public Dictionary<string, int> SignOffBreakdown { get; set; } = new Dictionary<string, int>(); // NEW
     }
 
     public class OpportunityStationSummaryDto
@@ -223,5 +247,16 @@ namespace gasopper_crm_server.DTOs
         public int CompleteStations { get; set; }
         public int IncompleteStations { get; set; }
         public double CompletionPercentage { get; set; }
+        
+        // NEW: Sign-off information
+        public int SignedOffStations { get; set; }
+        public bool AllStationsSignedOff { get; set; }
+    }
+
+    // NEW: Sign-off specific DTO
+    public class SignOffStationDto
+    {
+        [Required]
+        public bool ConfirmSignOff { get; set; }
     }
 }

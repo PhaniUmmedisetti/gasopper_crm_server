@@ -1,4 +1,4 @@
-// UPDATED GasStationService.cs - Now uses STATION postal code for station code generation
+// COMPLETE GasStationService.cs - Now with sign-off functionality
 using Microsoft.EntityFrameworkCore;
 using gasopper_crm_server.Data;
 using gasopper_crm_server.DTOs;
@@ -20,6 +20,10 @@ namespace gasopper_crm_server.Services
         Task<GasStationStatsDto> GetGasStationStatsAsync(int currentUserId, int currentUserRole);
         Task<List<StationTypeDto>> GetStationTypesAsync();
         Task<bool> UpdateOpportunityStatusFromStationsAsync(int opportunityId, int currentUserId, int currentUserRole);
+
+        // NEW: Sign-off functionality
+        Task<bool> SignOffStationAsync(int stationId, int currentUserId);
+        Task<bool> CanUserSignOffStationAsync(int stationId, int currentUserId);
     }
 
     public class GasStationService : IGasStationService
@@ -41,7 +45,6 @@ namespace gasopper_crm_server.Services
                     return null;
                 }
 
-                // UPDATED: Use STATION postal code instead of opportunity postal code
                 var stationCode = await StationCodeGenerator.GenerateUniqueStationCodeAsync(_context, dto.PostalCode);
                 if (string.IsNullOrEmpty(stationCode))
                 {
@@ -55,15 +58,12 @@ namespace gasopper_crm_server.Services
                 {
                     opportunity_id = opportunityId,
                     station_name = dto.StationName,
-                    
-                    // UPDATED: Use split address fields
                     address_line_1 = dto.AddressLine1,
                     address_line_2 = dto.AddressLine2,
                     city = dto.City,
                     state = dto.State,
                     postal_code = dto.PostalCode,
                     country = dto.Country,
-                    
                     station_code = stationCode,
                     poc_name = dto.PocName,
                     poc_phone = dto.PocPhone,
@@ -73,7 +73,9 @@ namespace gasopper_crm_server.Services
                     station_type_id = dto.StationTypeId,
                     notes = dto.Notes,
                     created_by = currentUserId,
-                    is_deleted = false
+                    is_deleted = false,
+                    is_signed_off = false,
+                    signed_off_at = null
                 };
 
                 _context.GasStations.Add(gasStation);
@@ -115,7 +117,7 @@ namespace gasopper_crm_server.Services
                     return null;
                 }
 
-                return MapToGasStationResponseDto(gasStation);
+                return MapToGasStationResponseDto(gasStation, currentUserId);
             }
             catch (Exception ex)
             {
@@ -143,7 +145,7 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(MapToGasStationListResponseDto).ToList();
+                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
             }
             catch (Exception ex)
             {
@@ -169,7 +171,7 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(MapToGasStationListResponseDto).ToList();
+                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
             }
             catch (Exception ex)
             {
@@ -197,13 +199,14 @@ namespace gasopper_crm_server.Services
                     return null;
                 }
 
-                // Update fields if provided
+                if (gasStation.is_signed_off)
+                {
+                    Console.WriteLine($"[ERROR] Station {id} is signed off and cannot be updated");
+                    return null;
+                }
+
                 if (dto.StationName != null)
                     gasStation.station_name = dto.StationName;
-                
-                // REMOVED: Address fields cannot be updated to prevent station code conflicts
-                // Address fields are immutable after creation
-                
                 if (dto.PocName != null)
                     gasStation.poc_name = dto.PocName;
                 if (dto.PocPhone != null)
@@ -253,6 +256,12 @@ namespace gasopper_crm_server.Services
                     return false;
                 }
 
+                if (gasStation.is_signed_off)
+                {
+                    Console.WriteLine($"[ERROR] Station {id} is signed off and cannot be deleted");
+                    return false;
+                }
+
                 gasStation.is_deleted = true;
                 await _context.SaveChangesAsync();
 
@@ -265,6 +274,81 @@ namespace gasopper_crm_server.Services
             catch (Exception ex)
             {
                 Console.WriteLine($"[ERROR] DeleteGasStationAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> SignOffStationAsync(int stationId, int currentUserId)
+        {
+            try
+            {
+                var gasStation = await _context.GasStations
+                    .Include(gs => gs.Opportunity)
+                    .FirstOrDefaultAsync(gs => gs.station_id == stationId && !gs.is_deleted);
+
+                if (gasStation == null)
+                {
+                    Console.WriteLine($"[DEBUG] Station {stationId} not found for sign-off");
+                    return false;
+                }
+
+                if (gasStation.created_by != currentUserId)
+                {
+                    Console.WriteLine($"[ERROR] User {currentUserId} is not the creator of station {stationId}");
+                    return false;
+                }
+
+                if (gasStation.is_signed_off)
+                {
+                    Console.WriteLine($"[ERROR] Station {stationId} is already signed off");
+                    return false;
+                }
+
+                if (!IsStationReadyForSignOff(gasStation))
+                {
+                    Console.WriteLine($"[ERROR] Station {stationId} is not ready for sign-off - missing required fields");
+                    return false;
+                }
+
+                gasStation.is_signed_off = true;
+                gasStation.signed_off_at = DateTime.UtcNow;
+
+                await _context.SaveChangesAsync();
+
+                Console.WriteLine($"[DEBUG] Station {stationId} signed off successfully by user {currentUserId}");
+
+                await UpdateOpportunityStatusFromStationsAsync(gasStation.opportunity_id, currentUserId, 1);
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] SignOffStationAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<bool> CanUserSignOffStationAsync(int stationId, int currentUserId)
+        {
+            try
+            {
+                var gasStation = await _context.GasStations
+                    .FirstOrDefaultAsync(gs => gs.station_id == stationId && !gs.is_deleted);
+
+                if (gasStation == null)
+                    return false;
+
+                if (gasStation.created_by != currentUserId)
+                    return false;
+
+                if (gasStation.is_signed_off)
+                    return false;
+
+                return IsStationReadyForSignOff(gasStation);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] CanUserSignOffStationAsync failed: {ex.Message}");
                 return false;
             }
         }
@@ -282,7 +366,7 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(MapToGasStationListResponseDto).ToList();
+                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
             }
             catch (Exception ex)
             {
@@ -311,7 +395,7 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(MapToGasStationListResponseDto).ToList();
+                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
             }
             catch (Exception ex)
             {
@@ -338,6 +422,10 @@ namespace gasopper_crm_server.Services
                 var incompleteStations = totalStations - completeStations;
                 var completionRate = totalStations > 0 ? (double)completeStations / totalStations * 100 : 0;
 
+                var signedOffStations = gasStations.Count(gs => gs.is_signed_off);
+                var pendingSignOffStations = gasStations.Count(gs => IsStationReadyForSignOff(gs) && !gs.is_signed_off);
+                var signOffRate = totalStations > 0 ? (double)signedOffStations / totalStations * 100 : 0;
+
                 var opportunityIds = gasStations.Select(gs => gs.opportunity_id).Distinct().ToList();
                 var averageStationsPerOpportunity = opportunityIds.Count > 0 ? (double)totalStations / opportunityIds.Count : 0;
 
@@ -352,6 +440,13 @@ namespace gasopper_crm_server.Services
                     ["Incomplete"] = incompleteStations
                 };
 
+                var signOffBreakdown = new Dictionary<string, int>
+                {
+                    ["Signed Off"] = signedOffStations,
+                    ["Ready for Sign-off"] = pendingSignOffStations,
+                    ["Not Ready"] = totalStations - signedOffStations - pendingSignOffStations
+                };
+
                 return new GasStationStatsDto
                 {
                     TotalStations = totalStations,
@@ -359,8 +454,12 @@ namespace gasopper_crm_server.Services
                     IncompleteStations = incompleteStations,
                     CompletionRate = Math.Round(completionRate, 1),
                     AverageStationsPerOpportunity = (int)Math.Round(averageStationsPerOpportunity),
+                    SignedOffStations = signedOffStations,
+                    PendingSignOffStations = pendingSignOffStations,
+                    SignOffRate = Math.Round(signOffRate, 1),
                     StationTypeBreakdown = stationTypeBreakdown,
-                    CompletionBreakdown = completionBreakdown
+                    CompletionBreakdown = completionBreakdown,
+                    SignOffBreakdown = signOffBreakdown
                 };
             }
             catch (Exception ex)
@@ -412,15 +511,15 @@ namespace gasopper_crm_server.Services
                 }
 
                 var totalStations = opportunity.GasStations.Count;
-                var completeStations = opportunity.GasStations.Count(gs => IsStationComplete(gs));
+                var signedOffStations = opportunity.GasStations.Count(gs => gs.is_signed_off);
 
-                int newStatusId = (totalStations > 0 && completeStations == totalStations) ? 2 : 1;
+                int newStatusId = (totalStations > 0 && signedOffStations == totalStations) ? 2 : 1;
 
                 if (opportunity.status_id != newStatusId)
                 {
                     opportunity.status_id = newStatusId;
                     await _context.SaveChangesAsync();
-                    Console.WriteLine($"[DEBUG] Opportunity {opportunityId} status updated to {newStatusId}");
+                    Console.WriteLine($"[DEBUG] Opportunity {opportunityId} status updated to {newStatusId} (signed off: {signedOffStations}/{totalStations})");
                 }
 
                 return true;
@@ -487,6 +586,11 @@ namespace gasopper_crm_server.Services
 
         private static bool IsStationComplete(GasStation station)
         {
+            return IsStationReadyForSignOff(station) && station.is_signed_off;
+        }
+
+        private static bool IsStationReadyForSignOff(GasStation station)
+        {
             var hasRequiredFields = !string.IsNullOrWhiteSpace(station.station_name)
                                    && !string.IsNullOrWhiteSpace(station.address_line_1)
                                    && !string.IsNullOrWhiteSpace(station.city)
@@ -506,7 +610,7 @@ namespace gasopper_crm_server.Services
 
         private static double CalculateStationCompletionPercentage(GasStation station)
         {
-            var totalFields = 12; // Updated count for split address fields
+            var totalFields = 12;
             var filledFields = 0;
 
             if (!string.IsNullOrWhiteSpace(station.station_name)) filledFields++;
@@ -525,25 +629,20 @@ namespace gasopper_crm_server.Services
             return Math.Round((double)filledFields / totalFields * 100, 1);
         }
 
-        private static GasStationResponseDto MapToGasStationResponseDto(GasStation gasStation)
+        private static GasStationResponseDto MapToGasStationResponseDto(GasStation gasStation, int currentUserId)
         {
             return new GasStationResponseDto
             {
                 StationId = gasStation.station_id,
                 OpportunityId = gasStation.opportunity_id,
                 StationName = gasStation.station_name,
-                
-                // UPDATED: Split address fields
                 AddressLine1 = gasStation.address_line_1,
                 AddressLine2 = gasStation.address_line_2,
                 City = gasStation.city,
                 State = gasStation.state,
                 PostalCode = gasStation.postal_code,
                 Country = gasStation.country,
-                
-                // Computed full address for backward compatibility
                 Address = gasStation.Address,
-                
                 StationCode = gasStation.station_code,
                 PocName = gasStation.poc_name,
                 PocPhone = gasStation.poc_phone,
@@ -554,6 +653,10 @@ namespace gasopper_crm_server.Services
                 Notes = gasStation.notes,
                 IsComplete = IsStationComplete(gasStation),
                 CompletionPercentage = CalculateStationCompletionPercentage(gasStation),
+                IsSignedOff = gasStation.is_signed_off,
+                SignedOffAt = gasStation.signed_off_at,
+                CanSignOff = !gasStation.is_signed_off && gasStation.created_by == currentUserId && IsStationReadyForSignOff(gasStation),
+                CanEdit = !gasStation.is_signed_off && gasStation.created_by == currentUserId,
                 CreatedBy = gasStation.created_by,
                 CreatedByName = $"{gasStation.CreatedByUser?.first_name ?? ""} {gasStation.CreatedByUser?.last_name ?? ""}".Trim(),
                 CreatedAt = gasStation.created_at,
@@ -563,25 +666,20 @@ namespace gasopper_crm_server.Services
             };
         }
 
-        private static GasStationListResponseDto MapToGasStationListResponseDto(GasStation gasStation)
+        private static GasStationListResponseDto MapToGasStationListResponseDto(GasStation gasStation, int currentUserId)
         {
             return new GasStationListResponseDto
             {
                 StationId = gasStation.station_id,
                 OpportunityId = gasStation.opportunity_id,
                 StationName = gasStation.station_name,
-                
-                // UPDATED: Split address fields
                 AddressLine1 = gasStation.address_line_1,
                 AddressLine2 = gasStation.address_line_2,
                 City = gasStation.city,
                 State = gasStation.state,
                 PostalCode = gasStation.postal_code,
                 Country = gasStation.country,
-                
-                // Computed full address for backward compatibility
                 Address = gasStation.Address,
-                
                 StationCode = gasStation.station_code,
                 PocName = gasStation.poc_name,
                 PocPhone = gasStation.poc_phone,
@@ -591,6 +689,10 @@ namespace gasopper_crm_server.Services
                 StationTypeId = gasStation.station_type_id,
                 IsComplete = IsStationComplete(gasStation),
                 CompletionPercentage = CalculateStationCompletionPercentage(gasStation),
+                IsSignedOff = gasStation.is_signed_off,
+                SignedOffAt = gasStation.signed_off_at,
+                CanSignOff = !gasStation.is_signed_off && gasStation.created_by == currentUserId && IsStationReadyForSignOff(gasStation),
+                CanEdit = !gasStation.is_signed_off && gasStation.created_by == currentUserId,
                 CreatedByName = $"{gasStation.CreatedByUser?.first_name ?? ""} {gasStation.CreatedByUser?.last_name ?? ""}".Trim(),
                 CreatedAt = gasStation.created_at,
                 OpportunityLeadName = gasStation.Opportunity?.Lead?.name ?? ""
@@ -598,3 +700,8 @@ namespace gasopper_crm_server.Services
         }
     }
 }
+
+// check for no of stations bug in convert opp
+// completed tab in opp
+
+// remove delete station completely.

@@ -1,5 +1,5 @@
 // REPLACE your entire GasStationsController.cs with this complete production-ready version
-// All endpoints with proper error handling, logging, and role-based access
+// All endpoints with proper error handling, logging, role-based access + NEW SIGN-OFF FUNCTIONALITY
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -42,13 +42,19 @@ namespace gasopper_crm_server.Controllers
                     active = stats.TotalStations - stats.CompleteStations,
                     completionRate = stats.CompletionRate,
 
+                    // NEW: Sign-off statistics
+                    signedOff = stats.SignedOffStations,
+                    pendingSignOff = stats.PendingSignOffStations,
+                    signOffRate = stats.SignOffRate,
+
                     // Additional useful metrics
                     byOpportunity = stats.AverageStationsPerOpportunity,
                     stationTypeBreakdown = stats.StationTypeBreakdown,
-                    completionBreakdown = stats.CompletionBreakdown
+                    completionBreakdown = stats.CompletionBreakdown,
+                    signOffBreakdown = stats.SignOffBreakdown
                 };
 
-                Console.WriteLine($"[DEBUG] Stats: Total={stats.TotalStations}, Complete={stats.CompleteStations}, Rate={stats.CompletionRate}%");
+                Console.WriteLine($"[DEBUG] Stats: Total={stats.TotalStations}, Complete={stats.CompleteStations}, SignedOff={stats.SignedOffStations}, Rate={stats.CompletionRate}%");
 
                 return Ok(response);
             }
@@ -182,6 +188,7 @@ namespace gasopper_crm_server.Controllers
         /// <summary>
         /// Update an existing gas station
         /// Station code cannot be modified
+        /// Signed-off stations cannot be updated
         /// </summary>
         [HttpPut("{id}")]
         public async Task<IActionResult> UpdateStation(int id, [FromBody] UpdateGasStationDto updateDto)
@@ -203,7 +210,7 @@ namespace gasopper_crm_server.Controllers
                 if (gasStation == null)
                 {
                     Console.WriteLine($"[ERROR] Station {id} not found or access denied for update");
-                    return NotFound(new { message = "Gas station not found or access denied" });
+                    return NotFound(new { message = "Gas station not found, access denied, or station is signed off" });
                 }
 
                 Console.WriteLine($"[DEBUG] Station updated successfully: {gasStation.StationId}");
@@ -218,6 +225,7 @@ namespace gasopper_crm_server.Controllers
 
         /// <summary>
         /// Soft delete a gas station
+        /// Signed-off stations cannot be deleted
         /// </summary>
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteStation(int id)
@@ -233,7 +241,7 @@ namespace gasopper_crm_server.Controllers
                 if (!success)
                 {
                     Console.WriteLine($"[ERROR] Station {id} not found or access denied for deletion");
-                    return NotFound(new { message = "Gas station not found or access denied" });
+                    return NotFound(new { message = "Gas station not found, access denied, or station is signed off" });
                 }
 
                 Console.WriteLine($"[DEBUG] Station deleted successfully: {id}");
@@ -266,13 +274,89 @@ namespace gasopper_crm_server.Controllers
                     return NotFound(new { message = "Gas station not found or access denied" });
                 }
 
-                Console.WriteLine($"[DEBUG] Station found: {gasStation.StationId} - {gasStation.StationName} (Code: {gasStation.StationCode})");
+                Console.WriteLine($"[DEBUG] Station found: {gasStation.StationId} - {gasStation.StationName} (Code: {gasStation.StationCode}, SignedOff: {gasStation.IsSignedOff})");
                 return Ok(gasStation);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[ERROR] GetStationById failed: {ex.Message}");
                 return StatusCode(500, new { message = "Error fetching gas station", error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// NEW: Sign off a gas station (permanently freeze it)
+        /// Only the creator of the station can sign it off
+        /// Station must have all fields filled before sign-off
+        /// </summary>
+        [HttpPost("{id}/sign-off")]
+        public async Task<IActionResult> SignOffStation(int id, [FromBody] SignOffStationDto signOffDto)
+        {
+            if (!ModelState.IsValid)
+            {
+                Console.WriteLine($"[ERROR] SignOffStation - Invalid model state for station {id}");
+                return BadRequest(ModelState);
+            }
+
+            if (!signOffDto.ConfirmSignOff)
+            {
+                Console.WriteLine($"[ERROR] SignOffStation - Sign-off not confirmed for station {id}");
+                return BadRequest(new { message = "Sign-off confirmation is required" });
+            }
+
+            try
+            {
+                var (currentUserId, _) = GetCurrentUserInfo();
+
+                Console.WriteLine($"[DEBUG] SignOffStation called - StationId: {id}, UserId: {currentUserId}");
+
+                var success = await _gasStationService.SignOffStationAsync(id, currentUserId);
+
+                if (!success)
+                {
+                    Console.WriteLine($"[ERROR] Failed to sign off station {id}");
+                    return BadRequest(new { message = "Unable to sign off station. Station not found, not owned by you, already signed off, or not ready for sign-off." });
+                }
+
+                Console.WriteLine($"[DEBUG] Station {id} signed off successfully by user {currentUserId}");
+
+                // Return updated station data
+                var updatedStation = await _gasStationService.GetGasStationByIdAsync(id, currentUserId, 1); // Use admin role for retrieval
+                return Ok(new 
+                { 
+                    message = "Gas station signed off successfully",
+                    station = updatedStation
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] SignOffStation failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error signing off gas station", error = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// NEW: Check if current user can sign off a specific station
+        /// </summary>
+        [HttpGet("{id}/can-sign-off")]
+        public async Task<IActionResult> CanSignOffStation(int id)
+        {
+            try
+            {
+                var (currentUserId, _) = GetCurrentUserInfo();
+
+                Console.WriteLine($"[DEBUG] CanSignOffStation called - StationId: {id}, UserId: {currentUserId}");
+
+                var canSignOff = await _gasStationService.CanUserSignOffStationAsync(id, currentUserId);
+
+                Console.WriteLine($"[DEBUG] User {currentUserId} can sign off station {id}: {canSignOff}");
+
+                return Ok(new { canSignOff = canSignOff });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] CanSignOffStation failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error checking sign-off permissions", error = ex.Message });
             }
         }
 

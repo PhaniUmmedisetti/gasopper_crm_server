@@ -198,7 +198,7 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.type_name).IsUnique();
             });
 
-            // UPDATED: Configure GasStation entity with split address fields
+            // UPDATED: Configure GasStation entity with split address fields + sign-off
             modelBuilder.Entity<GasStation>(entity =>
             {
                 entity.ToTable("gas_stations");
@@ -220,11 +220,16 @@ namespace gasopper_crm_server.Data
                 entity.Property(e => e.poc_phone).HasMaxLength(20);
                 entity.Property(e => e.poc_email).HasMaxLength(320);
                 entity.Property(e => e.notes);
+                
+                // NEW: Configure sign-off fields
+                entity.Property(e => e.is_signed_off).HasDefaultValue(false);
+                entity.Property(e => e.signed_off_at);
+                
                 entity.Property(e => e.is_deleted).HasDefaultValue(false);
                 entity.Property(e => e.created_at).HasDefaultValueSql("NOW()");
                 entity.Property(e => e.last_updated).HasDefaultValueSql("NOW()");
 
-                // Indexes (UPDATED with new address fields)
+                // Indexes (UPDATED with new address fields + sign-off)
                 entity.HasIndex(e => e.opportunity_id);
                 entity.HasIndex(e => e.created_by);
                 entity.HasIndex(e => e.station_type_id);
@@ -233,6 +238,7 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.postal_code); // NEW: For station code generation queries
                 entity.HasIndex(e => e.city); // NEW: For location-based queries
                 entity.HasIndex(e => e.state); // NEW: For state-based filtering
+                entity.HasIndex(e => e.is_signed_off); // NEW: For sign-off filtering
 
                 // Relationships - EXPLICITLY configure to avoid shadow properties
                 entity.HasOne(e => e.Opportunity)

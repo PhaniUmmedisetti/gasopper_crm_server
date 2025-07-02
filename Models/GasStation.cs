@@ -78,6 +78,10 @@ namespace gasopper_crm_server.Models
         
         public string? notes { get; set; }
         
+        // NEW: Sign-off functionality
+        public bool is_signed_off { get; set; } = false;
+        public DateTime? signed_off_at { get; set; }
+        
         // Foreign keys
         [Required]
         public int created_by { get; set; }
