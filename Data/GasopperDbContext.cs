@@ -143,8 +143,6 @@ namespace gasopper_crm_server.Data
                 entity.HasKey(e => e.opportunity_id);
                 entity.Property(e => e.owner_name).IsRequired().HasMaxLength(100);
 
-                // REMOVED: owner_address configuration since the property is being removed
-
                 // NEW: Configure split address fields
                 entity.Property(e => e.address_line_1).HasMaxLength(200);
                 entity.Property(e => e.address_line_2).HasMaxLength(200);
@@ -200,15 +198,22 @@ namespace gasopper_crm_server.Data
                 entity.HasIndex(e => e.type_name).IsUnique();
             });
 
-            // Configure GasStation entity (UPDATED WITH STATION CODE)
+            // UPDATED: Configure GasStation entity with split address fields
             modelBuilder.Entity<GasStation>(entity =>
             {
                 entity.ToTable("gas_stations");
                 entity.HasKey(e => e.station_id);
                 entity.Property(e => e.station_name).IsRequired().HasMaxLength(100);
-                entity.Property(e => e.address).IsRequired();
 
-                // NEW: Configure station_code field
+                // UPDATED: Configure split address fields instead of single address
+                entity.Property(e => e.address_line_1).IsRequired().HasMaxLength(200);
+                entity.Property(e => e.address_line_2).HasMaxLength(200);
+                entity.Property(e => e.city).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.state).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.postal_code).IsRequired().HasMaxLength(20);
+                entity.Property(e => e.country).HasMaxLength(100).HasDefaultValue("United States");
+
+                // Station code configuration (existing)
                 entity.Property(e => e.station_code).IsRequired().HasMaxLength(20);
 
                 entity.Property(e => e.poc_name).HasMaxLength(100);
@@ -219,12 +224,15 @@ namespace gasopper_crm_server.Data
                 entity.Property(e => e.created_at).HasDefaultValueSql("NOW()");
                 entity.Property(e => e.last_updated).HasDefaultValueSql("NOW()");
 
-                // Indexes
+                // Indexes (UPDATED with new address fields)
                 entity.HasIndex(e => e.opportunity_id);
                 entity.HasIndex(e => e.created_by);
                 entity.HasIndex(e => e.station_type_id);
                 entity.HasIndex(e => e.is_deleted);
-                entity.HasIndex(e => e.station_code); // NEW: Index for performance and uniqueness
+                entity.HasIndex(e => e.station_code); // For performance and uniqueness
+                entity.HasIndex(e => e.postal_code); // NEW: For station code generation queries
+                entity.HasIndex(e => e.city); // NEW: For location-based queries
+                entity.HasIndex(e => e.state); // NEW: For state-based filtering
 
                 // Relationships - EXPLICITLY configure to avoid shadow properties
                 entity.HasOne(e => e.Opportunity)

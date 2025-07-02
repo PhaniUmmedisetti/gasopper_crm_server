@@ -1,6 +1,3 @@
-// REPLACE your entire GasStationDtos.cs with this version
-// CHANGED: Using stationTypeId instead of stationTypeName in responses
-
 using System.ComponentModel.DataAnnotations;
 
 namespace gasopper_crm_server.DTOs
@@ -11,8 +8,28 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string StationName { get; set; } = string.Empty;
 
+        // UPDATED: Split address fields instead of single Address
         [Required]
-        public string Address { get; set; } = string.Empty;
+        [MaxLength(200)]
+        public string AddressLine1 { get; set; } = string.Empty;
+        
+        [MaxLength(200)]
+        public string? AddressLine2 { get; set; }
+        
+        [Required]
+        [MaxLength(100)]
+        public string City { get; set; } = string.Empty;
+        
+        [Required]
+        [MaxLength(100)]
+        public string State { get; set; } = string.Empty;
+        
+        [Required]
+        [MaxLength(20)]
+        public string PostalCode { get; set; } = string.Empty;
+        
+        [MaxLength(100)]
+        public string Country { get; set; } = "United States";
 
         // POC information (all optional)
         [MaxLength(100)]
@@ -37,7 +54,7 @@ namespace gasopper_crm_server.DTOs
 
         public string? Notes { get; set; }
         
-        // NOTE: StationCode is NOT included here - it's auto-generated
+        // NOTE: StationCode is NOT included here - it's auto-generated from PostalCode
     }
 
     public class UpdateGasStationDto
@@ -45,7 +62,8 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string? StationName { get; set; }
 
-        public string? Address { get; set; }
+        // REMOVED: Address fields cannot be updated to prevent station code conflicts
+        // Address fields are immutable after creation since station code depends on postal code
 
         // POC information (all optional)
         [MaxLength(100)]
@@ -71,6 +89,7 @@ namespace gasopper_crm_server.DTOs
         public string? Notes { get; set; }
         
         // NOTE: StationCode is NOT included here - it's immutable after creation
+        // NOTE: Address fields are NOT included here - they're immutable to prevent station code conflicts
     }
 
     public class GasStationResponseDto
@@ -78,6 +97,16 @@ namespace gasopper_crm_server.DTOs
         public int StationId { get; set; }
         public int OpportunityId { get; set; }
         public string StationName { get; set; } = string.Empty;
+        
+        // UPDATED: Split address fields
+        public string AddressLine1 { get; set; } = string.Empty;
+        public string? AddressLine2 { get; set; }
+        public string City { get; set; } = string.Empty;
+        public string State { get; set; } = string.Empty;
+        public string PostalCode { get; set; } = string.Empty;
+        public string Country { get; set; } = string.Empty;
+        
+        // Computed full address for backward compatibility
         public string Address { get; set; } = string.Empty;
         
         // AUTO-GENERATED STATION CODE
@@ -91,8 +120,6 @@ namespace gasopper_crm_server.DTOs
         // Station details
         public int? NumberOfPumps { get; set; }
         public int? NumberOfEmployees { get; set; }
-        
-        // CHANGED: Return stationTypeId instead of stationTypeName
         public int? StationTypeId { get; set; }
         public string? Notes { get; set; }
 
@@ -111,12 +138,21 @@ namespace gasopper_crm_server.DTOs
         public string OpportunityOwnerName { get; set; } = string.Empty;
     }
 
-    // UPDATED: Using stationTypeId for faster frontend referencing
     public class GasStationListResponseDto
     {
         public int StationId { get; set; }
         public int OpportunityId { get; set; }
         public string StationName { get; set; } = string.Empty;
+        
+        // UPDATED: Split address fields
+        public string AddressLine1 { get; set; } = string.Empty;
+        public string? AddressLine2 { get; set; }
+        public string City { get; set; } = string.Empty;
+        public string State { get; set; } = string.Empty;
+        public string PostalCode { get; set; } = string.Empty;
+        public string Country { get; set; } = string.Empty;
+        
+        // Computed full address for backward compatibility
         public string Address { get; set; } = string.Empty;
         
         // AUTO-GENERATED STATION CODE
@@ -130,8 +166,6 @@ namespace gasopper_crm_server.DTOs
         // Station details
         public int? NumberOfPumps { get; set; }
         public int? NumberOfEmployees { get; set; }
-        
-        // CHANGED: Return stationTypeId instead of stationTypeName for faster referencing
         public int? StationTypeId { get; set; }
         
         public bool IsComplete { get; set; }
@@ -145,12 +179,19 @@ namespace gasopper_crm_server.DTOs
     {
         public int StationId { get; set; }
         public string StationName { get; set; } = string.Empty;
+        
+        // UPDATED: Split address fields
+        public string AddressLine1 { get; set; } = string.Empty;
+        public string City { get; set; } = string.Empty;
+        public string State { get; set; } = string.Empty;
+        public string PostalCode { get; set; } = string.Empty;
+        
+        // Computed full address for backward compatibility
         public string Address { get; set; } = string.Empty;
         
         // AUTO-GENERATED STATION CODE
         public string StationCode { get; set; } = string.Empty;
         
-        // CHANGED: Use stationTypeId for consistency
         public int? StationTypeId { get; set; }
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }

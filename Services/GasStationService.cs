@@ -1,9 +1,9 @@
-// REPLACE your entire GasStationService.cs with this complete version
+// UPDATED GasStationService.cs - Now uses STATION postal code for station code generation
 using Microsoft.EntityFrameworkCore;
 using gasopper_crm_server.Data;
 using gasopper_crm_server.DTOs;
 using gasopper_crm_server.Models;
-using gasopper_crm_server.Helpers; // FIXED: Import from Helpers folder
+using gasopper_crm_server.Helpers;
 
 namespace gasopper_crm_server.Services
 {
@@ -41,20 +41,29 @@ namespace gasopper_crm_server.Services
                     return null;
                 }
 
-                var stationCode = await StationCodeGenerator.GenerateUniqueStationCodeAsync(_context, opportunityId);
+                // UPDATED: Use STATION postal code instead of opportunity postal code
+                var stationCode = await StationCodeGenerator.GenerateUniqueStationCodeAsync(_context, dto.PostalCode);
                 if (string.IsNullOrEmpty(stationCode))
                 {
-                    Console.WriteLine($"[ERROR] Failed to generate station code for opportunity {opportunityId}");
+                    Console.WriteLine($"[ERROR] Failed to generate station code for postal code {dto.PostalCode}");
                     return null;
                 }
 
-                Console.WriteLine($"[DEBUG] Generated station code: {stationCode} for opportunity {opportunityId}");
+                Console.WriteLine($"[DEBUG] Generated station code: {stationCode} for postal code {dto.PostalCode}");
 
                 var gasStation = new GasStation
                 {
                     opportunity_id = opportunityId,
                     station_name = dto.StationName,
-                    address = dto.Address,
+                    
+                    // UPDATED: Use split address fields
+                    address_line_1 = dto.AddressLine1,
+                    address_line_2 = dto.AddressLine2,
+                    city = dto.City,
+                    state = dto.State,
+                    postal_code = dto.PostalCode,
+                    country = dto.Country,
+                    
                     station_code = stationCode,
                     poc_name = dto.PocName,
                     poc_phone = dto.PocPhone,
@@ -188,10 +197,13 @@ namespace gasopper_crm_server.Services
                     return null;
                 }
 
+                // Update fields if provided
                 if (dto.StationName != null)
                     gasStation.station_name = dto.StationName;
-                if (dto.Address != null)
-                    gasStation.address = dto.Address;
+                
+                // REMOVED: Address fields cannot be updated to prevent station code conflicts
+                // Address fields are immutable after creation
+                
                 if (dto.PocName != null)
                     gasStation.poc_name = dto.PocName;
                 if (dto.PocPhone != null)
@@ -476,7 +488,10 @@ namespace gasopper_crm_server.Services
         private static bool IsStationComplete(GasStation station)
         {
             var hasRequiredFields = !string.IsNullOrWhiteSpace(station.station_name)
-                                   && !string.IsNullOrWhiteSpace(station.address)
+                                   && !string.IsNullOrWhiteSpace(station.address_line_1)
+                                   && !string.IsNullOrWhiteSpace(station.city)
+                                   && !string.IsNullOrWhiteSpace(station.state)
+                                   && !string.IsNullOrWhiteSpace(station.postal_code)
                                    && !string.IsNullOrWhiteSpace(station.station_code);
 
             var hasOptionalFields = !string.IsNullOrWhiteSpace(station.poc_name)
@@ -491,11 +506,14 @@ namespace gasopper_crm_server.Services
 
         private static double CalculateStationCompletionPercentage(GasStation station)
         {
-            var totalFields = 9;
+            var totalFields = 12; // Updated count for split address fields
             var filledFields = 0;
 
             if (!string.IsNullOrWhiteSpace(station.station_name)) filledFields++;
-            if (!string.IsNullOrWhiteSpace(station.address)) filledFields++;
+            if (!string.IsNullOrWhiteSpace(station.address_line_1)) filledFields++;
+            if (!string.IsNullOrWhiteSpace(station.city)) filledFields++;
+            if (!string.IsNullOrWhiteSpace(station.state)) filledFields++;
+            if (!string.IsNullOrWhiteSpace(station.postal_code)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.station_code)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.poc_name)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.poc_phone)) filledFields++;
@@ -514,7 +532,18 @@ namespace gasopper_crm_server.Services
                 StationId = gasStation.station_id,
                 OpportunityId = gasStation.opportunity_id,
                 StationName = gasStation.station_name,
-                Address = gasStation.address,
+                
+                // UPDATED: Split address fields
+                AddressLine1 = gasStation.address_line_1,
+                AddressLine2 = gasStation.address_line_2,
+                City = gasStation.city,
+                State = gasStation.state,
+                PostalCode = gasStation.postal_code,
+                Country = gasStation.country,
+                
+                // Computed full address for backward compatibility
+                Address = gasStation.Address,
+                
                 StationCode = gasStation.station_code,
                 PocName = gasStation.poc_name,
                 PocPhone = gasStation.poc_phone,
@@ -541,7 +570,18 @@ namespace gasopper_crm_server.Services
                 StationId = gasStation.station_id,
                 OpportunityId = gasStation.opportunity_id,
                 StationName = gasStation.station_name,
-                Address = gasStation.address,
+                
+                // UPDATED: Split address fields
+                AddressLine1 = gasStation.address_line_1,
+                AddressLine2 = gasStation.address_line_2,
+                City = gasStation.city,
+                State = gasStation.state,
+                PostalCode = gasStation.postal_code,
+                Country = gasStation.country,
+                
+                // Computed full address for backward compatibility
+                Address = gasStation.Address,
+                
                 StationCode = gasStation.station_code,
                 PocName = gasStation.poc_name,
                 PocPhone = gasStation.poc_phone,

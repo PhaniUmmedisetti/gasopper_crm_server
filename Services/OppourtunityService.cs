@@ -494,8 +494,12 @@ namespace gasopper_crm_server.Services
 
         private static bool IsStationComplete(GasStation station)
         {
+            // FIXED: Updated to use new address fields
             var hasRequiredFields = !string.IsNullOrWhiteSpace(station.station_name)
-                                   && !string.IsNullOrWhiteSpace(station.address);
+                                   && !string.IsNullOrWhiteSpace(station.address_line_1)
+                                   && !string.IsNullOrWhiteSpace(station.city)
+                                   && !string.IsNullOrWhiteSpace(station.state)
+                                   && !string.IsNullOrWhiteSpace(station.postal_code);
 
             var hasOptionalFields = !string.IsNullOrWhiteSpace(station.poc_name)
                                    && !string.IsNullOrWhiteSpace(station.poc_phone)
@@ -513,8 +517,17 @@ namespace gasopper_crm_server.Services
 
             if (string.IsNullOrWhiteSpace(station.station_name))
                 missing.Add("Station Name");
-            if (string.IsNullOrWhiteSpace(station.address))
-                missing.Add("Address");
+            
+            // FIXED: Updated to check new address fields
+            if (string.IsNullOrWhiteSpace(station.address_line_1))
+                missing.Add("Address Line 1");
+            if (string.IsNullOrWhiteSpace(station.city))
+                missing.Add("City");
+            if (string.IsNullOrWhiteSpace(station.state))
+                missing.Add("State");
+            if (string.IsNullOrWhiteSpace(station.postal_code))
+                missing.Add("Postal Code");
+                
             if (string.IsNullOrWhiteSpace(station.poc_name))
                 missing.Add("POC Name");
             if (string.IsNullOrWhiteSpace(station.poc_phone))
@@ -542,7 +555,7 @@ namespace gasopper_crm_server.Services
             {
                 StationId = s.station_id,
                 StationName = s.station_name,
-                Address = s.address,
+                Address = s.Address, // FIXED: Use computed Address property instead of s.address
                 StationCode = s.station_code, // Include station code
                 PocName = s.poc_name,
                 PocPhone = s.poc_phone,

@@ -1,5 +1,5 @@
 // Helpers/StationCodeGenerator.cs
-// Helper utility for generating unique station codes based on postal codes
+// UPDATED: Helper utility for generating unique station codes based on STATION postal codes with GLOBAL sequence numbering
 
 using Microsoft.EntityFrameworkCore;
 using gasopper_crm_server.Data;
@@ -10,103 +10,73 @@ namespace gasopper_crm_server.Helpers
     public static class StationCodeGenerator
     {
         /// <summary>
-        /// Generates a unique station code based on the opportunity's postal code.
-        /// Format: {First3DigitsOfPostalCode}{SequentialNumber:D2}
-        /// Example: Postal code 09827 → Station codes: 09801, 09802, 09803, etc.
+        /// Generates a unique station code based on the STATION's postal code with GLOBAL sequence numbering.
+        /// Format: {First3DigitsOfPostalCode}{GlobalSequentialNumber:D2}
+        /// Example: 
+        /// - Station 1 with postal 09823 → 09801
+        /// - Station 2 with postal 09823 → 09802  
+        /// - Station 3 with postal 09823 → 09803
+        /// - Station 4 with postal 09845 → 09804 (same first 3 digits, continues global sequence)
         /// </summary>
         /// <param name="context">Database context</param>
-        /// <param name="opportunityId">Opportunity ID to get postal code from</param>
+        /// <param name="stationPostalCode">Station's postal code (from station creation form)</param>
         /// <returns>Unique station code or empty string if failed</returns>
-        public static async Task<string> GenerateUniqueStationCodeAsync(GasopperDbContext context, int opportunityId)
+        public static async Task<string> GenerateUniqueStationCodeAsync(GasopperDbContext context, string stationPostalCode)
         {
             try
             {
-                // Get opportunity to extract postal code
-                var opportunity = await context.Opportunities
-                    .FirstOrDefaultAsync(o => o.opportunity_id == opportunityId && !o.is_deleted);
+                // Validate and clean postal code
+                string cleanedPostalCode = CleanPostalCode(stationPostalCode);
+                if (!IsValidPostalCode(cleanedPostalCode))
+                {
+                    Console.WriteLine($"[ERROR] Invalid postal code: {stationPostalCode}");
+                    return GenerateFallbackCode();
+                }
 
-                if (opportunity == null)
-                    return string.Empty;
+                // Extract first 3 digits as prefix
+                string prefix = cleanedPostalCode.Substring(0, 3);
+                Console.WriteLine($"[DEBUG] Using postal code prefix: {prefix} from postal code: {cleanedPostalCode}");
 
-                // Extract postal code safely
-                string postalCode = ExtractPostalCode(opportunity);
-                if (string.IsNullOrEmpty(postalCode) || postalCode.Length < 3)
-                    return GenerateFallbackCode(opportunityId);
-
-                // Get first 3 digits of postal code
-                string prefix = postalCode.Substring(0, 3);
-
-                // Find all existing station codes with this prefix across ALL opportunities
+                // Find ALL existing station codes with the same first 3 digits (GLOBAL search across all opportunities)
                 var existingCodes = await context.GasStations
                     .Where(gs => !gs.is_deleted && gs.station_code.StartsWith(prefix))
                     .Select(gs => gs.station_code)
                     .ToListAsync();
 
-                // Find the next available sequence number
-                int nextSequence = FindNextSequence(prefix, existingCodes);
+                Console.WriteLine($"[DEBUG] Found {existingCodes.Count} existing stations with prefix {prefix}");
+
+                // Find the next available GLOBAL sequence number
+                int nextSequence = FindNextGlobalSequence(prefix, existingCodes);
 
                 // Generate the new station code
-                return $"{prefix}{nextSequence:D2}";
+                string stationCode = $"{prefix}{nextSequence:D2}";
+                
+                Console.WriteLine($"[DEBUG] Generated station code: {stationCode} (prefix: {prefix}, sequence: {nextSequence})");
+                return stationCode;
             }
             catch (Exception ex)
             {
-                // Log error and return fallback code
-                Console.WriteLine($"[ERROR] Failed to generate station code for opportunity {opportunityId}: {ex.Message}");
-                return GenerateFallbackCode(opportunityId);
+                Console.WriteLine($"[ERROR] Failed to generate station code for postal {stationPostalCode}: {ex.Message}");
+                return GenerateFallbackCode();
             }
         }
 
         /// <summary>
-        /// Extracts postal code from opportunity, using postal_code field first, then parsing owner_address
+        /// BACKWARD COMPATIBILITY: Old method that used opportunity postal code
+        /// Now redirects to use station postal code
         /// </summary>
-        /// <param name="opportunity">Opportunity entity</param>
-        /// <returns>5-digit postal code or empty string</returns>
-        private static string ExtractPostalCode(Models.Opportunity opportunity)
+        /// <param name="context">Database context</param>
+        /// <param name="opportunityId">Opportunity ID (used for fallback only)</param>
+        /// <returns>Fallback station code</returns>
+        [Obsolete("Use GenerateUniqueStationCodeAsync(context, stationPostalCode) instead")]
+        public static Task<string> GenerateUniqueStationCodeAsync(GasopperDbContext context, int opportunityId)
         {
-            // Priority 1: Use postal_code field directly
-            if (!string.IsNullOrEmpty(opportunity.postal_code))
-            {
-                string cleanedPostal = CleanPostalCode(opportunity.postal_code);
-                if (IsValidPostalCode(cleanedPostal))
-                    return cleanedPostal;
-            }
-
-            // // Priority 2: Parse from owner_address as fallback
-            // if (!string.IsNullOrEmpty(opportunity.owner_address))
-            // {
-            //     string extractedPostal = ExtractPostalCodeFromAddress(opportunity.owner_address);
-            //     if (IsValidPostalCode(extractedPostal))
-            //         return extractedPostal;
-            // }
-
-            // Priority 3: Parse from address_line_1 as last resort
-            if (!string.IsNullOrEmpty(opportunity.address_line_1))
-            {
-                string extractedPostal = ExtractPostalCodeFromAddress(opportunity.address_line_1);
-                if (IsValidPostalCode(extractedPostal))
-                    return extractedPostal;
-            }
-
-            return string.Empty;
+            Console.WriteLine($"[WARNING] Using deprecated method. Opportunity {opportunityId} - generating fallback code");
+            return Task.FromResult(GenerateFallbackCode(opportunityId));
         }
 
         /// <summary>
-        /// Extracts postal code from address string using regex
-        /// </summary>
-        /// <param name="address">Address string</param>
-        /// <returns>5-digit postal code or empty string</returns>
-        private static string ExtractPostalCodeFromAddress(string address)
-        {
-            if (string.IsNullOrEmpty(address))
-                return string.Empty;
-
-            // Match 5-digit postal codes (with optional -4 extension)
-            var match = Regex.Match(address, @"\b(\d{5})(?:-\d{4})?\b");
-            return match.Success ? match.Groups[1].Value : string.Empty;
-        }
-
-        /// <summary>
-        /// Cleans postal code by removing non-digits
+        /// Cleans postal code by removing non-digits and extracting first 5 digits
         /// </summary>
         /// <param name="postalCode">Raw postal code</param>
         /// <returns>Clean 5-digit postal code</returns>
@@ -119,7 +89,7 @@ namespace gasopper_crm_server.Helpers
             string digitsOnly = Regex.Replace(postalCode, @"\D", "");
             
             // Return first 5 digits if available
-            return digitsOnly.Length >= 5 ? digitsOnly.Substring(0, 5) : digitsOnly;
+            return digitsOnly.Length >= 5 ? digitsOnly.Substring(0, 5) : digitsOnly.PadLeft(5, '0');
         }
 
         /// <summary>
@@ -135,41 +105,61 @@ namespace gasopper_crm_server.Helpers
         }
 
         /// <summary>
-        /// Finds the next available sequence number for a given prefix
+        /// Finds the next available GLOBAL sequence number for a given 3-digit prefix
+        /// This searches across ALL opportunities and stations with the same prefix
         /// </summary>
-        /// <param name="prefix">3-digit prefix</param>
+        /// <param name="prefix">3-digit postal code prefix (e.g., "098")</param>
         /// <param name="existingCodes">List of existing station codes with this prefix</param>
-        /// <returns>Next sequence number (starting from 1)</returns>
-        private static int FindNextSequence(string prefix, List<string> existingCodes)
+        /// <returns>Next GLOBAL sequence number (starting from 01)</returns>
+        private static int FindNextGlobalSequence(string prefix, List<string> existingCodes)
         {
             if (!existingCodes.Any())
+            {
+                Console.WriteLine($"[DEBUG] No existing codes for prefix {prefix}, starting with 01");
                 return 1;
+            }
 
             // Extract sequence numbers from existing codes
+            // Expected format: {3-digit-prefix}{2-digit-sequence} (e.g., 09801, 09802)
             var sequences = existingCodes
-                .Where(code => code.StartsWith(prefix) && code.Length == prefix.Length + 2)
+                .Where(code => code.StartsWith(prefix) && code.Length == 5) // 3 digits prefix + 2 digits sequence
                 .Select(code => {
-                    string sequencePart = code.Substring(prefix.Length);
-                    return int.TryParse(sequencePart, out int seq) ? seq : 0;
+                    string sequencePart = code.Substring(3); // Get last 2 digits
+                    bool parsed = int.TryParse(sequencePart, out int seq);
+                    Console.WriteLine($"[DEBUG] Code: {code}, Sequence part: {sequencePart}, Parsed: {parsed}, Value: {seq}");
+                    return parsed ? seq : 0;
                 })
                 .Where(seq => seq > 0)
+                .OrderBy(seq => seq)
                 .ToList();
 
             if (!sequences.Any())
+            {
+                Console.WriteLine($"[DEBUG] No valid sequences found for prefix {prefix}, starting with 01");
                 return 1;
+            }
 
             // Find the highest sequence number and increment
-            return sequences.Max() + 1;
+            int maxSequence = sequences.Max();
+            int nextSequence = maxSequence + 1;
+            
+            Console.WriteLine($"[DEBUG] Prefix {prefix}: Found {sequences.Count} sequences, max: {maxSequence}, next: {nextSequence}");
+            return nextSequence;
         }
 
         /// <summary>
-        /// Generates a fallback station code when postal code extraction fails
+        /// Generates a fallback station code when postal code processing fails
         /// </summary>
-        /// <param name="opportunityId">Opportunity ID</param>
+        /// <param name="opportunityId">Optional opportunity ID for fallback</param>
         /// <returns>Fallback station code</returns>
-        private static string GenerateFallbackCode(int opportunityId)
+        private static string GenerateFallbackCode(int? opportunityId = null)
         {
-            return $"TMP{opportunityId:D3}01";
+            var timestamp = DateTime.UtcNow.ToString("MMddHHmm");
+            if (opportunityId.HasValue)
+            {
+                return $"TMP{opportunityId:D3}{timestamp.Substring(0, 2)}";
+            }
+            return $"TMP{timestamp}";
         }
 
         /// <summary>
@@ -186,19 +176,19 @@ namespace gasopper_crm_server.Helpers
             if (stationCode.Length == 5 && stationCode.All(char.IsDigit))
                 return true;
 
-            // Check for fallback format: TMP + 3 digits + 2 digits (e.g., TMP00101)
-            if (stationCode.Length == 8 && stationCode.StartsWith("TMP") && stationCode.Substring(3).All(char.IsDigit))
+            // Check for fallback format: TMP + digits (e.g., TMP00112)
+            if (stationCode.StartsWith("TMP") && stationCode.Length > 3)
                 return true;
 
             return false;
         }
 
         /// <summary>
-        /// Extracts the postal code prefix from a station code
+        /// Extracts the 3-digit prefix from a station code
         /// </summary>
         /// <param name="stationCode">Station code</param>
-        /// <returns>3-digit postal code prefix or empty string</returns>
-        public static string ExtractPostalCodePrefix(string stationCode)
+        /// <returns>3-digit prefix or empty string</returns>
+        public static string ExtractPrefixFromStationCode(string stationCode)
         {
             if (string.IsNullOrEmpty(stationCode) || stationCode.Length < 3)
                 return string.Empty;
@@ -206,7 +196,22 @@ namespace gasopper_crm_server.Helpers
             if (stationCode.StartsWith("TMP"))
                 return string.Empty;
 
+            // Extract first 3 digits as prefix
             return stationCode.Substring(0, 3);
+        }
+
+        /// <summary>
+        /// Extracts the sequence number from a station code
+        /// </summary>
+        /// <param name="stationCode">Station code</param>
+        /// <returns>Sequence number or 0 if invalid</returns>
+        public static int ExtractSequenceFromStationCode(string stationCode)
+        {
+            if (string.IsNullOrEmpty(stationCode) || stationCode.Length != 5 || stationCode.StartsWith("TMP"))
+                return 0;
+
+            string sequencePart = stationCode.Substring(3);
+            return int.TryParse(sequencePart, out int sequence) ? sequence : 0;
         }
     }
 }

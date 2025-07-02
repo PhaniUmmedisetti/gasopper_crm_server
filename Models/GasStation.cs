@@ -16,10 +16,42 @@ namespace gasopper_crm_server.Models
         [MaxLength(100)]
         public string station_name { get; set; } = string.Empty;
         
+        // UPDATED: Split address fields instead of single address
         [Required]
-        public string address { get; set; } = string.Empty;
+        [MaxLength(200)]
+        public string address_line_1 { get; set; } = string.Empty;
         
-        // AUTO-GENERATED STATION CODE - NEW FIELD
+        [MaxLength(200)]
+        public string? address_line_2 { get; set; }
+        
+        [Required]
+        [MaxLength(100)]
+        public string city { get; set; } = string.Empty;
+        
+        [Required]
+        [MaxLength(100)]
+        public string state { get; set; } = string.Empty;
+        
+        [Required]
+        [MaxLength(20)]
+        public string postal_code { get; set; } = string.Empty;
+        
+        [MaxLength(100)]
+        public string country { get; set; } = "United States";
+        
+        // Computed property for backward compatibility
+        [NotMapped]
+        public string Address => 
+            string.Join(", ", new[] { 
+                address_line_1, 
+                address_line_2, 
+                city, 
+                state, 
+                postal_code,
+                country != "United States" ? country : null 
+            }.Where(s => !string.IsNullOrEmpty(s)));
+        
+        // AUTO-GENERATED STATION CODE - EXISTING FIELD
         [Required]
         [MaxLength(20)]
         public string station_code { get; set; } = string.Empty;
