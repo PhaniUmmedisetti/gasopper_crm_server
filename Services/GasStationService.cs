@@ -1,4 +1,6 @@
-// COMPLETE GasStationService.cs - Now with sign-off functionality
+// FIXED GasStationService.cs - Corrected role-based permissions
+// Now supports: Sales person (own data), Manager (own + team), Admin (all data)
+
 using Microsoft.EntityFrameworkCore;
 using gasopper_crm_server.Data;
 using gasopper_crm_server.DTOs;
@@ -21,7 +23,7 @@ namespace gasopper_crm_server.Services
         Task<List<StationTypeDto>> GetStationTypesAsync();
         Task<bool> UpdateOpportunityStatusFromStationsAsync(int opportunityId, int currentUserId, int currentUserRole);
 
-        // NEW: Sign-off functionality
+        // Sign-off functionality
         Task<bool> SignOffStationAsync(int stationId, int currentUserId);
         Task<bool> CanUserSignOffStationAsync(int stationId, int currentUserId);
     }
@@ -117,7 +119,7 @@ namespace gasopper_crm_server.Services
                     return null;
                 }
 
-                return MapToGasStationResponseDto(gasStation, currentUserId);
+                return await MapToGasStationResponseDtoAsync(gasStation, currentUserId, currentUserRole);
             }
             catch (Exception ex)
             {
@@ -145,7 +147,12 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
+                var results = new List<GasStationListResponseDto>();
+                foreach (var gs in gasStations)
+                {
+                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, currentUserRole));
+                }
+                return results;
             }
             catch (Exception ex)
             {
@@ -171,7 +178,12 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
+                var results = new List<GasStationListResponseDto>();
+                foreach (var gs in gasStations)
+                {
+                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, currentUserRole));
+                }
+                return results;
             }
             catch (Exception ex)
             {
@@ -185,6 +197,7 @@ namespace gasopper_crm_server.Services
             try
             {
                 var gasStation = await _context.GasStations
+                    .Include(gs => gs.Opportunity)
                     .FirstOrDefaultAsync(gs => gs.station_id == id && !gs.is_deleted);
 
                 if (gasStation == null)
@@ -193,7 +206,8 @@ namespace gasopper_crm_server.Services
                     return null;
                 }
 
-                if (!await CanUserAccessOpportunityAsync(gasStation.opportunity_id, currentUserId, currentUserRole))
+                // FIXED: Use new permission logic instead of just checking creator
+                if (!await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole))
                 {
                     Console.WriteLine($"[ERROR] User {currentUserId} cannot update station {id}");
                     return null;
@@ -242,6 +256,7 @@ namespace gasopper_crm_server.Services
             try
             {
                 var gasStation = await _context.GasStations
+                    .Include(gs => gs.Opportunity)
                     .FirstOrDefaultAsync(gs => gs.station_id == id && !gs.is_deleted);
 
                 if (gasStation == null)
@@ -250,7 +265,8 @@ namespace gasopper_crm_server.Services
                     return false;
                 }
 
-                if (!await CanUserAccessOpportunityAsync(gasStation.opportunity_id, currentUserId, currentUserRole))
+                // FIXED: Use new permission logic instead of just checking creator
+                if (!await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole))
                 {
                     Console.WriteLine($"[ERROR] User {currentUserId} cannot delete station {id}");
                     return false;
@@ -366,7 +382,12 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
+                var results = new List<GasStationListResponseDto>();
+                foreach (var gs in gasStations)
+                {
+                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 3)); // Assume salesperson for "my stations"
+                }
+                return results;
             }
             catch (Exception ex)
             {
@@ -395,7 +416,12 @@ namespace gasopper_crm_server.Services
                     .OrderBy(gs => gs.station_code)
                     .ToListAsync();
 
-                return gasStations.Select(gs => MapToGasStationListResponseDto(gs, currentUserId)).ToList();
+                var results = new List<GasStationListResponseDto>();
+                foreach (var gs in gasStations)
+                {
+                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 2)); // Assume manager for team stations
+                }
+                return results;
             }
             catch (Exception ex)
             {
@@ -531,6 +557,94 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // DEBUG VERSION: GasStationService.cs with detailed logging
+// Add this temporary logging to debug the admin edit issue
+
+// UPDATED: Debug version of CanUserEditStationAsync method
+private async Task<bool> CanUserEditStationAsync(GasStation gasStation, int currentUserId, int currentUserRole)
+{
+    try
+    {
+        Console.WriteLine($"[DEBUG] CanUserEditStationAsync called:");
+        Console.WriteLine($"  Station ID: {gasStation.station_id}");
+        Console.WriteLine($"  Current User ID: {currentUserId}");
+        Console.WriteLine($"  Current User Role: {currentUserRole}");
+
+        // CRITICAL FIX: Load the Opportunity relationship if not already loaded
+        if (gasStation.Opportunity == null)
+        {
+            Console.WriteLine($"[DEBUG] Loading Opportunity relationship for station {gasStation.station_id}");
+            await _context.Entry(gasStation)
+                .Reference(gs => gs.Opportunity)
+                .LoadAsync();
+        }
+
+        if (gasStation.Opportunity == null)
+        {
+            Console.WriteLine($"[ERROR] Could not load Opportunity for station {gasStation.station_id}");
+            return false;
+        }
+
+        Console.WriteLine($"  Opportunity ID: {gasStation.Opportunity.opportunity_id}");
+        Console.WriteLine($"  Opportunity assigned_to: {gasStation.Opportunity.assigned_to}");
+
+        // Admin can edit any station
+        if (currentUserRole == 1)
+        {
+            Console.WriteLine($"[DEBUG] User is Admin - allowing edit");
+            return true;
+        }
+
+        // Manager can edit stations from opportunities assigned to them or their team
+        if (currentUserRole == 2)
+        {
+            Console.WriteLine($"[DEBUG] User is Manager - checking permissions");
+            
+            // Can edit if opportunity is assigned to manager
+            if (gasStation.Opportunity.assigned_to == currentUserId)
+            {
+                Console.WriteLine($"[DEBUG] Opportunity assigned to manager - allowing edit");
+                return true;
+            }
+
+            // Can edit if opportunity is assigned to a team member
+            var teamMemberIds = await _context.Users
+                .Where(u => u.manager_id == currentUserId && u.is_active)
+                .Select(u => u.user_id)
+                .ToListAsync();
+
+            Console.WriteLine($"[DEBUG] Manager's team member IDs: [{string.Join(", ", teamMemberIds)}]");
+
+            if (teamMemberIds.Contains(gasStation.Opportunity.assigned_to))
+            {
+                Console.WriteLine($"[DEBUG] Opportunity assigned to team member - allowing edit");
+                return true;
+            }
+
+            Console.WriteLine($"[DEBUG] Manager cannot edit this station");
+            return false;
+        }
+
+        // Salesperson can edit stations from opportunities assigned to them
+        if (currentUserRole == 3)
+        {
+            Console.WriteLine($"[DEBUG] User is Salesperson - checking assignment");
+            bool canEdit = gasStation.Opportunity.assigned_to == currentUserId;
+            Console.WriteLine($"[DEBUG] Salesperson can edit: {canEdit}");
+            return canEdit;
+        }
+
+        Console.WriteLine($"[DEBUG] Unknown role or no permission - denying edit");
+        return false;
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[ERROR] CanUserEditStationAsync failed: {ex.Message}");
+        Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
+        return false;
+    }
+}
+
         private async Task<bool> CanUserAccessOpportunityAsync(int opportunityId, int userId, int userRole)
         {
             try
@@ -610,64 +724,75 @@ namespace gasopper_crm_server.Services
 
         private static double CalculateStationCompletionPercentage(GasStation station)
         {
-            var totalFields = 12;
+            var totalFields = 10; // FIXED: Match OpportunityService (was 12)
             var filledFields = 0;
 
+            // Same 10 fields as OpportunityService
             if (!string.IsNullOrWhiteSpace(station.station_name)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.address_line_1)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.city)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.state)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.postal_code)) filledFields++;
-            if (!string.IsNullOrWhiteSpace(station.station_code)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.poc_name)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.poc_phone)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.poc_email)) filledFields++;
             if (station.number_of_pumps.HasValue) filledFields++;
             if (station.number_of_employees.HasValue) filledFields++;
-            if (station.station_type_id.HasValue) filledFields++;
 
             return Math.Round((double)filledFields / totalFields * 100, 1);
         }
 
-        private static GasStationResponseDto MapToGasStationResponseDto(GasStation gasStation, int currentUserId)
-        {
-            return new GasStationResponseDto
-            {
-                StationId = gasStation.station_id,
-                OpportunityId = gasStation.opportunity_id,
-                StationName = gasStation.station_name,
-                AddressLine1 = gasStation.address_line_1,
-                AddressLine2 = gasStation.address_line_2,
-                City = gasStation.city,
-                State = gasStation.state,
-                PostalCode = gasStation.postal_code,
-                Country = gasStation.country,
-                Address = gasStation.Address,
-                StationCode = gasStation.station_code,
-                PocName = gasStation.poc_name,
-                PocPhone = gasStation.poc_phone,
-                PocEmail = gasStation.poc_email,
-                NumberOfPumps = gasStation.number_of_pumps,
-                NumberOfEmployees = gasStation.number_of_employees,
-                StationTypeId = gasStation.station_type_id,
-                Notes = gasStation.notes,
-                IsComplete = IsStationComplete(gasStation),
-                CompletionPercentage = CalculateStationCompletionPercentage(gasStation),
-                IsSignedOff = gasStation.is_signed_off,
-                SignedOffAt = gasStation.signed_off_at,
-                CanSignOff = !gasStation.is_signed_off && gasStation.created_by == currentUserId && IsStationReadyForSignOff(gasStation),
-                CanEdit = !gasStation.is_signed_off && gasStation.created_by == currentUserId,
-                CreatedBy = gasStation.created_by,
-                CreatedByName = $"{gasStation.CreatedByUser?.first_name ?? ""} {gasStation.CreatedByUser?.last_name ?? ""}".Trim(),
-                CreatedAt = gasStation.created_at,
-                LastUpdated = gasStation.last_updated,
-                OpportunityLeadName = gasStation.Opportunity?.Lead?.name ?? "",
-                OpportunityOwnerName = gasStation.Opportunity?.owner_name ?? ""
-            };
-        }
+        // FIXED: Updated mapping methods to use the new permission logic
+        // UPDATED: Debug version of MapToGasStationResponseDtoAsync
+private async Task<GasStationResponseDto> MapToGasStationResponseDtoAsync(GasStation gasStation, int currentUserId, int currentUserRole)
+{
+    Console.WriteLine($"[DEBUG] MapToGasStationResponseDtoAsync called for station {gasStation.station_id}");
+    
+    var canEdit = await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole);
+    
+    Console.WriteLine($"[DEBUG] Final canEdit result: {canEdit}");
+    Console.WriteLine($"[DEBUG] Station is_signed_off: {gasStation.is_signed_off}");
+    Console.WriteLine($"[DEBUG] Final CanEdit value: {canEdit && !gasStation.is_signed_off}");
+    
+    return new GasStationResponseDto
+    {
+        StationId = gasStation.station_id,
+        OpportunityId = gasStation.opportunity_id,
+        StationName = gasStation.station_name,
+        AddressLine1 = gasStation.address_line_1,
+        AddressLine2 = gasStation.address_line_2,
+        City = gasStation.city,
+        State = gasStation.state,
+        PostalCode = gasStation.postal_code,
+        Country = gasStation.country,
+        Address = gasStation.Address,
+        StationCode = gasStation.station_code,
+        PocName = gasStation.poc_name,
+        PocPhone = gasStation.poc_phone,
+        PocEmail = gasStation.poc_email,
+        NumberOfPumps = gasStation.number_of_pumps,
+        NumberOfEmployees = gasStation.number_of_employees,
+        StationTypeId = gasStation.station_type_id,
+        Notes = gasStation.notes,
+        IsComplete = IsStationComplete(gasStation),
+        CompletionPercentage = CalculateStationCompletionPercentage(gasStation),
+        IsSignedOff = gasStation.is_signed_off,
+        SignedOffAt = gasStation.signed_off_at,
+        CanSignOff = !gasStation.is_signed_off && gasStation.created_by == currentUserId && IsStationReadyForSignOff(gasStation),
+        CanEdit = canEdit && !gasStation.is_signed_off, // This should be true for admin
+        CreatedBy = gasStation.created_by,
+        CreatedByName = $"{gasStation.CreatedByUser?.first_name ?? ""} {gasStation.CreatedByUser?.last_name ?? ""}".Trim(),
+        CreatedAt = gasStation.created_at,
+        LastUpdated = gasStation.last_updated,
+        OpportunityLeadName = gasStation.Opportunity?.Lead?.name ?? "",
+        OpportunityOwnerName = gasStation.Opportunity?.owner_name ?? ""
+    };
+}
 
-        private static GasStationListResponseDto MapToGasStationListResponseDto(GasStation gasStation, int currentUserId)
+        private async Task<GasStationListResponseDto> MapToGasStationListResponseDtoAsync(GasStation gasStation, int currentUserId, int currentUserRole)
         {
+            var canEdit = await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole);
+            
             return new GasStationListResponseDto
             {
                 StationId = gasStation.station_id,
@@ -692,7 +817,7 @@ namespace gasopper_crm_server.Services
                 IsSignedOff = gasStation.is_signed_off,
                 SignedOffAt = gasStation.signed_off_at,
                 CanSignOff = !gasStation.is_signed_off && gasStation.created_by == currentUserId && IsStationReadyForSignOff(gasStation),
-                CanEdit = !gasStation.is_signed_off && gasStation.created_by == currentUserId,
+                CanEdit = canEdit && !gasStation.is_signed_off, // FIXED: Use role-based permission logic
                 CreatedByName = $"{gasStation.CreatedByUser?.first_name ?? ""} {gasStation.CreatedByUser?.last_name ?? ""}".Trim(),
                 CreatedAt = gasStation.created_at,
                 OpportunityLeadName = gasStation.Opportunity?.Lead?.name ?? ""
@@ -700,8 +825,3 @@ namespace gasopper_crm_server.Services
         }
     }
 }
-
-// check for no of stations bug in convert opp
-// completed tab in opp
-
-// remove delete station completely.

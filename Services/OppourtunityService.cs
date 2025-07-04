@@ -517,7 +517,7 @@ namespace gasopper_crm_server.Services
 
             if (string.IsNullOrWhiteSpace(station.station_name))
                 missing.Add("Station Name");
-            
+
             // FIXED: Updated to check new address fields
             if (string.IsNullOrWhiteSpace(station.address_line_1))
                 missing.Add("Address Line 1");
@@ -527,7 +527,7 @@ namespace gasopper_crm_server.Services
                 missing.Add("State");
             if (string.IsNullOrWhiteSpace(station.postal_code))
                 missing.Add("Postal Code");
-                
+
             if (string.IsNullOrWhiteSpace(station.poc_name))
                 missing.Add("POC Name");
             if (string.IsNullOrWhiteSpace(station.poc_phone))
@@ -544,6 +544,28 @@ namespace gasopper_crm_server.Services
             return missing;
         }
 
+        private static double CalculateStationCompletionPercentage(GasStation station)
+        {
+            var totalFields = 10; // Total number of fields we check
+            var completedFields = 0;
+
+            // Required fields
+            if (!string.IsNullOrWhiteSpace(station.station_name)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.address_line_1)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.city)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.state)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.postal_code)) completedFields++;
+
+            // Optional fields
+            if (!string.IsNullOrWhiteSpace(station.poc_name)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.poc_phone)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.poc_email)) completedFields++;
+            if (station.number_of_pumps.HasValue) completedFields++;
+            if (station.number_of_employees.HasValue) completedFields++;
+
+            return Math.Round((double)completedFields / totalFields * 100, 1);
+        }
+
         private OpportunityResponseDto MapToOpportunityResponseDto(Opportunity opportunity)
         {
             var stations = opportunity.GasStations.ToList();
@@ -551,24 +573,32 @@ namespace gasopper_crm_server.Services
             var incompleteStations = stations.Count - completeStations;
             var completionPercentage = stations.Any() ? Math.Round((double)completeStations / stations.Count * 100, 1) : 0.0;
 
-            var stationDtos = stations.Select(s => new OpportunityStationDto
+            var stationDtos = stations.Select(s =>
             {
-                StationId = s.station_id,
-                StationName = s.station_name,
-                Address = s.Address, // FIXED: Use computed Address property instead of s.address
-                StationCode = s.station_code, // Include station code
-                PocName = s.poc_name,
-                PocPhone = s.poc_phone,
-                PocEmail = s.poc_email,
-                NumberOfPumps = s.number_of_pumps,
-                NumberOfEmployees = s.number_of_employees,
-                StationTypeName = s.StationType?.type_name,
-                IsComplete = IsStationComplete(s),
-                MissingFields = GetMissingFields(s),
-                CreatedAt = s.created_at,
-                StatusId = s.station_type_id ?? 0,
-                StatusName = s.StationType?.type_name ?? "",
-                Description = s.notes ?? ""
+                var missingFields = GetMissingFields(s);
+                var isComplete = IsStationComplete(s);
+                var stationCompletionPercentage = CalculateStationCompletionPercentage(s);
+
+                return new OpportunityStationDto
+                {
+                    StationId = s.station_id,
+                    StationName = s.station_name,
+                    Address = s.Address,
+                    StationCode = s.station_code,
+                    PocName = s.poc_name,
+                    PocPhone = s.poc_phone,
+                    PocEmail = s.poc_email,
+                    NumberOfPumps = s.number_of_pumps,
+                    NumberOfEmployees = s.number_of_employees,
+                    StationTypeName = s.StationType?.type_name,
+                    IsComplete = isComplete,
+                    CompletionPercentage = stationCompletionPercentage,
+                    MissingFields = missingFields,
+                    CreatedAt = s.created_at,
+                    StatusId = s.station_type_id ?? 0,
+                    StatusName = s.StationType?.type_name ?? "",
+                    Description = s.notes ?? ""
+                };
             }).OrderBy(s => s.StationName).ToList();
 
             // Create combined address for legacy support
@@ -603,7 +633,7 @@ namespace gasopper_crm_server.Services
                 PostalCode = opportunity.postal_code ?? "",
                 Country = opportunity.country ?? "United States",
                 OwnerAddress = combinedAddress,
-                ActualStations = opportunity.actual_stations, // ADDED: Include actual stations count
+                ActualStations = opportunity.actual_stations,
                 StatusId = opportunity.status_id,
                 StatusName = opportunity.OpportunityStatus?.status_name ?? "",
                 StatusDescription = opportunity.OpportunityStatus?.description ?? "",
@@ -636,7 +666,7 @@ namespace gasopper_crm_server.Services
                 StatusId = opportunity.status_id,
                 StatusName = opportunity.OpportunityStatus?.status_name ?? "",
                 AssignedToName = $"{opportunity.AssignedToUser?.first_name ?? ""} {opportunity.AssignedToUser?.last_name ?? ""}".Trim(),
-                ActualStations = opportunity.actual_stations, // ADDED: Include actual stations count
+                ActualStations = opportunity.actual_stations,
                 TotalStations = stations.Count,
                 CompleteStations = completeStations,
                 CompletionPercentage = completionPercentage,

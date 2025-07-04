@@ -187,10 +187,7 @@ namespace gasopper_crm_server.DTOs
         public int StationId { get; set; }
         public string StationName { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
-
-        // AUTO-GENERATED STATION CODE - NEW FIELD
         public string StationCode { get; set; } = string.Empty;
-
         public string? PocName { get; set; }
         public string? PocPhone { get; set; }
         public string? PocEmail { get; set; }
@@ -198,10 +195,9 @@ namespace gasopper_crm_server.DTOs
         public int? NumberOfEmployees { get; set; }
         public string? StationTypeName { get; set; }
         public bool IsComplete { get; set; }
+        public double CompletionPercentage { get; set; }  // ← ADD THIS LINE
         public List<string> MissingFields { get; set; } = new List<string>();
         public DateTime CreatedAt { get; set; }
-
-        // Status fields for compatibility
         public int StatusId { get; set; }
         public string StatusName { get; set; } = string.Empty;
         public string Description { get; set; } = string.Empty;
