@@ -20,7 +20,9 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IUserService, UserService>();
 builder.Services.AddScoped<ILeadService, LeadService>();
 builder.Services.AddScoped<IOpportunityService, OpportunityService>();
-builder.Services.AddScoped<IGasStationService, GasStationService>(); 
+builder.Services.AddScoped<IGasStationService, GasStationService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
+builder.Services.AddScoped<IOtpService, OtpService>();
 
 // ADD CORS FOR FRONTEND
 builder.Services.AddCors(options =>
@@ -61,9 +63,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         ValidateIssuerSigningKey = true,
         IssuerSigningKey = new SymmetricSecurityKey(key),
-        ValidateIssuer = false, 
-        ValidateAudience = false, 
-        ValidateLifetime = false, 
+        ValidateIssuer = false,
+        ValidateAudience = false,
+        ValidateLifetime = false,
         RequireExpirationTime = false,
         ClockSkew = TimeSpan.Zero
     };
@@ -88,7 +90,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         {
             var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
             Console.WriteLine($"🔍 Authorization Header: {authHeader}");
-            
+
             var token = authHeader?.Split(" ").Last();
             if (!string.IsNullOrEmpty(token))
             {
@@ -109,9 +111,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo 
-    { 
-        Title = "GasopperCRM API", 
+    c.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "GasopperCRM API",
         Version = "v1",
         Description = "Complete Gas Station CRM API with Gas Station Management"
     });
@@ -153,20 +155,20 @@ try
         var context = scope.ServiceProvider.GetRequiredService<GasopperDbContext>();
         var canConnect = await context.Database.CanConnectAsync();
         Console.WriteLine($"📊 Database connection: {canConnect}");
-        
+
         if (canConnect)
         {
             var userCount = await context.Users.CountAsync();
             var leadCount = await context.Leads.CountAsync();
             var opportunityCount = await context.Opportunities.CountAsync();
-            var gasStationCount = await context.GasStations.CountAsync(); 
-            var stationTypeCount = await context.StationTypes.CountAsync(); 
-            
+            var gasStationCount = await context.GasStations.CountAsync();
+            var stationTypeCount = await context.StationTypes.CountAsync();
+
             Console.WriteLine($"📊 Users in database: {userCount}");
             Console.WriteLine($"📊 Leads in database: {leadCount}");
             Console.WriteLine($"📊 Opportunities in database: {opportunityCount}");
-            Console.WriteLine($"📊 Gas Stations in database: {gasStationCount}"); 
-            Console.WriteLine($"📊 Station Types in database: {stationTypeCount}"); 
+            Console.WriteLine($"📊 Gas Stations in database: {gasStationCount}");
+            Console.WriteLine($"📊 Station Types in database: {stationTypeCount}");
         }
     }
 }
@@ -195,6 +197,6 @@ Console.WriteLine("🚀 API Server starting...");
 Console.WriteLine("📱 Swagger: http://localhost:5211/swagger");
 Console.WriteLine("🌐 CORS: Enabled for http://localhost:5173");
 Console.WriteLine("🔐 JWT debugging enabled - All validations disabled for debugging");
-Console.WriteLine("⛽ Gas Station Management: READY FOR TESTING"); 
+Console.WriteLine("⛽ Gas Station Management: READY FOR TESTING");
 
 app.Run();

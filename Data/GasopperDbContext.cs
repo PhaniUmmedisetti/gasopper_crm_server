@@ -25,6 +25,9 @@ namespace gasopper_crm_server.Data
         public DbSet<StationType> StationTypes { get; set; }
         public DbSet<GasStation> GasStations { get; set; }
 
+        public DbSet<UserOtp> UserOtps { get; set; }
+
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -49,7 +52,9 @@ namespace gasopper_crm_server.Data
                 entity.Property(e => e.address).IsRequired();
                 entity.Property(e => e.first_name).IsRequired().HasMaxLength(50);
                 entity.Property(e => e.last_name).IsRequired().HasMaxLength(50);
-                entity.Property(e => e.password_hash).IsRequired().HasMaxLength(255);
+                entity.Property(e => e.password_hash).HasMaxLength(255);
+                entity.Property(e => e.email_verified).HasDefaultValue(false);
+                entity.Property(e => e.last_otp_sent);
                 entity.Property(e => e.jwt_token).HasMaxLength(500);
                 entity.Property(e => e.is_active).HasDefaultValue(true);
                 entity.Property(e => e.created_at).HasDefaultValueSql("NOW()");
@@ -220,11 +225,11 @@ namespace gasopper_crm_server.Data
                 entity.Property(e => e.poc_phone).HasMaxLength(20);
                 entity.Property(e => e.poc_email).HasMaxLength(320);
                 entity.Property(e => e.notes);
-                
+
                 // NEW: Configure sign-off fields
                 entity.Property(e => e.is_signed_off).HasDefaultValue(false);
                 entity.Property(e => e.signed_off_at);
-                
+
                 entity.Property(e => e.is_deleted).HasDefaultValue(false);
                 entity.Property(e => e.created_at).HasDefaultValueSql("NOW()");
                 entity.Property(e => e.last_updated).HasDefaultValueSql("NOW()");
@@ -269,6 +274,25 @@ namespace gasopper_crm_server.Data
             modelBuilder.Entity<GasStation>()
                 .ToTable(t => t.HasCheckConstraint("CK_gas_stations_number_of_pumps", "number_of_pumps > 0"))
                 .ToTable(t => t.HasCheckConstraint("CK_gas_stations_number_of_employees", "number_of_employees > 0"));
+
+            modelBuilder.Entity<UserOtp>(entity =>
+{
+    entity.ToTable("user_otps");
+    entity.HasKey(e => e.OtpId);
+    entity.Property(e => e.Email).IsRequired().HasMaxLength(320);
+    entity.Property(e => e.OtpCode).IsRequired().HasMaxLength(6);
+    entity.Property(e => e.IsUsed).HasDefaultValue(false);
+    entity.Property(e => e.Attempts).HasDefaultValue(0);
+    entity.Property(e => e.CreatedAt).HasDefaultValueSql("NOW()");
+
+    // Simple indexes
+    entity.HasIndex(e => e.Email);
+    entity.HasIndex(e => e.OtpCode);
+    entity.HasIndex(e => e.ExpiresAt);
+    entity.HasIndex(e => e.UserId);
+
+    // NO NAVIGATION PROPERTIES - this eliminates the user_id1 issue
+});
         }
 
         public override int SaveChanges()

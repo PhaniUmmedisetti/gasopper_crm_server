@@ -12,6 +12,7 @@ namespace gasopper_crm_server.Services
     public interface IAuthService
     {
         Task<LoginResponseDto?> LoginAsync(LoginDto loginDto);
+        Task<LoginResponseDto?> AuthenticateWithEmailAsync(string email);
         Task<bool> LogoutAsync(int userId);
         Task<UserInfoDto?> GetUserInfoAsync(int userId);
     }
@@ -20,11 +21,13 @@ namespace gasopper_crm_server.Services
     {
         private readonly GasopperDbContext _context;
         private readonly IConfiguration _configuration;
+        private readonly ILogger<AuthService> _logger;
 
-        public AuthService(GasopperDbContext context, IConfiguration configuration)
+        public AuthService(GasopperDbContext context, IConfiguration configuration, ILogger<AuthService> logger)
         {
             _context = context;
             _configuration = configuration;
+            _logger = logger;
         }
 
         public async Task<LoginResponseDto?> LoginAsync(LoginDto loginDto)
@@ -74,6 +77,53 @@ namespace gasopper_crm_server.Services
                     RoleName = user.Role?.role_name ?? ""
                 }
             };
+        }
+
+        public async Task<LoginResponseDto?> AuthenticateWithEmailAsync(string email)
+        {
+            try
+            {
+                var user = await _context.Users
+                    .Include(u => u.Role)
+                    .FirstOrDefaultAsync(u => u.email.ToLower() == email.ToLower() && u.is_active);
+
+                if (user == null)
+                {
+                    _logger.LogWarning($"OTP authentication failed - user not found: {email}");
+                    return null;
+                }
+
+                // Generate JWT token
+                var token = GenerateJwtToken(user);
+
+                // Update last login
+                user.last_login = DateTime.UtcNow;
+                user.jwt_token = token;
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation($"OTP authentication successful for: {user.first_name} {user.last_name} ({email})");
+
+                return new LoginResponseDto
+                {
+                    Success = true,
+                    Message = "OTP authentication successful",
+                    Token = token,
+                    User = new UserInfoDto
+                    {
+                        UserId = user.user_id,
+                        EmployeeId = user.employee_id,
+                        Email = user.email,
+                        FirstName = user.first_name,
+                        LastName = user.last_name,
+                        RoleName = user.Role?.role_name ?? ""
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error authenticating user with email: {email}");
+                return null;
+            }
         }
 
         public async Task<bool> LogoutAsync(int userId)

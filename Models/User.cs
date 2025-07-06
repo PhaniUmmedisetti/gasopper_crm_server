@@ -46,10 +46,10 @@ namespace gasopper_crm_server.Models
         [Column("manager_id")]
         public int? manager_id { get; set; }
 
-        [Required]
+        // UPDATED: Made nullable for OTP-only users
         [MaxLength(255)]
         [Column("password_hash")]
-        public string password_hash { get; set; } = string.Empty;
+        public string? password_hash { get; set; } = string.Empty;
 
         [MaxLength(500)]
         [Column("jwt_token")]
@@ -62,6 +62,13 @@ namespace gasopper_crm_server.Models
         // ENHANCED: Added password reset tracking
         [Column("requires_password_reset")]
         public bool requires_password_reset { get; set; } = false;
+
+        // NEW: OTP-related fields
+        [Column("email_verified")]
+        public bool email_verified { get; set; } = false;
+
+        [Column("last_otp_sent")]
+        public DateTime? last_otp_sent { get; set; }
 
         [Required]
         [Column("iat")]
@@ -94,5 +101,8 @@ namespace gasopper_crm_server.Models
         public virtual ICollection<Opportunity> CreatedOpportunities { get; set; } = new List<Opportunity>();
         public virtual ICollection<Opportunity> AssignedOpportunities { get; set; } = new List<Opportunity>();
         public virtual ICollection<GasStation> CreatedGasStations { get; set; } = new List<GasStation>();
+        
+        // NEW: Navigation property for OTPs
+        public virtual ICollection<UserOtp> UserOtps { get; set; } = new List<UserOtp>();
     }
 }
