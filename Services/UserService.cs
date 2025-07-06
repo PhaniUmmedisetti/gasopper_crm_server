@@ -10,11 +10,13 @@ namespace gasopper_crm_server.Services
         Task<UserResponseDto?> CreateUserAsync(CreateUserDto createUserDto, int currentUserId, int currentUserRole);
         Task<UserResponseDto?> GetUserByIdAsync(int userId, int currentUserId, int currentUserRole);
         Task<List<UserListResponseDto>> GetUsersAsync(int currentUserId, int currentUserRole);
+        Task<List<UserListResponseDto>> GetFilteredUsersAsync(int currentUserId, int currentUserRole, UserFilterDto filters);
         Task<UserResponseDto?> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole);
         Task<bool> DeleteUserAsync(int userId, int currentUserId, int currentUserRole);
         Task<List<UserListResponseDto>> GetMyTeamAsync(int managerId);
         Task<bool> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto, int currentUserId);
         Task<List<object>> GetRolesAsync();
+        Task<List<UserListResponseDto>> GetAvailableManagersAsync(int currentUserId, int currentUserRole);
     }
 
     public class UserService : IUserService
@@ -24,6 +26,14 @@ namespace gasopper_crm_server.Services
         public UserService(GasopperDbContext context)
         {
             _context = context;
+        }
+
+        // ENHANCED: Default password generation
+        private string GenerateDefaultPassword()
+        {
+            var random = new Random();
+            var digits = random.Next(1000, 9999);
+            return $"Gas{digits}!";
         }
 
         public async Task<UserResponseDto?> CreateUserAsync(CreateUserDto createUserDto, int currentUserId, int currentUserRole)
@@ -44,9 +54,27 @@ namespace gasopper_crm_server.Services
                 if (existingUser != null)
                     return null;
 
-                // If manager is creating, validate they can only assign to themselves
-                if (currentUserRole == 2 && createUserDto.ManagerId != null && createUserDto.ManagerId != currentUserId)
-                    return null;
+                // ENHANCED: Auto-assign manager for Manager role creating Salesperson
+                var assignedManagerId = createUserDto.ManagerId;
+                if (currentUserRole == 2 && createUserDto.RoleId == 3)
+                {
+                    // If manager is creating salesperson, auto-assign to themselves if no manager specified
+                    assignedManagerId = createUserDto.ManagerId ?? currentUserId;
+                }
+
+                // If manager is creating, validate they can only assign to themselves or valid managers
+                if (currentUserRole == 2 && assignedManagerId != null && assignedManagerId != currentUserId)
+                {
+                    var targetManager = await _context.Users
+                        .FirstOrDefaultAsync(u => u.user_id == assignedManagerId && u.role_id == 2);
+                    if (targetManager == null)
+                        return null;
+                }
+
+                // ENHANCED: Use provided password or generate default
+                var password = !string.IsNullOrEmpty(createUserDto.Password) 
+                    ? createUserDto.Password 
+                    : GenerateDefaultPassword();
 
                 var user = new User
                 {
@@ -57,9 +85,10 @@ namespace gasopper_crm_server.Services
                     first_name = createUserDto.FirstName,
                     last_name = createUserDto.LastName,
                     role_id = createUserDto.RoleId,
-                    manager_id = createUserDto.ManagerId,
-                    password_hash = BCrypt.Net.BCrypt.HashPassword(createUserDto.Password),
+                    manager_id = assignedManagerId,
+                    password_hash = BCrypt.Net.BCrypt.HashPassword(password),
                     is_active = true,
+                    requires_password_reset = string.IsNullOrEmpty(createUserDto.Password), // ENHANCED: Flag for default password
                     iat = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                     exp = DateTimeOffset.UtcNow.AddYears(1).ToUnixTimeSeconds()
                 };
@@ -85,21 +114,19 @@ namespace gasopper_crm_server.Services
                         .ThenInclude(m => m!.Role)
                     .Where(u => u.user_id == userId);
 
-                // FIXED: Apply role-based filtering with MATERIALIZED team member IDs
+                // Apply role-based filtering with MATERIALIZED team member IDs
                 if (currentUserRole == 3) // Salesperson can only see themselves
                 {
                     query = query.Where(u => u.user_id == currentUserId);
                 }
                 else if (currentUserRole == 2) // Manager can see self and team
                 {
-                    // FIXED: Materialize team member IDs first
                     var teamMemberIds = await _context.Users
-                        .Where(u => u.manager_id == currentUserId && u.is_active)
+                        .Where(u => u.manager_id == currentUserId)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
                     teamMemberIds.Add(currentUserId); // Add manager's own ID
-
                     query = query.Where(u => teamMemberIds.Contains(u.user_id));
                 }
                 // Admin can see all (no filter)
@@ -128,6 +155,7 @@ namespace gasopper_crm_server.Services
                     LastLogin = user.last_login,
                     CreatedAt = user.created_at,
                     LastUpdated = user.last_updated,
+                    RequiresPasswordReset = user.requires_password_reset, // ENHANCED
                     Iat = user.iat,
                     Exp = user.exp
                 };
@@ -138,7 +166,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // FIXED: This MUST return empty list for salespeople if they can't see other users
+        // ENHANCED: Include inactive users, remove filtering
         public async Task<List<UserListResponseDto>> GetUsersAsync(int currentUserId, int currentUserRole)
         {
             try
@@ -148,21 +176,19 @@ namespace gasopper_crm_server.Services
                     .Include(u => u.Manager)
                     .AsQueryable();
 
-                // FIXED: Apply role-based filtering with MATERIALIZED team member IDs
+                // Apply role-based filtering with MATERIALIZED team member IDs
                 if (currentUserRole == 3) // Salesperson
                 {
                     query = query.Where(u => u.user_id == currentUserId);
                 }
                 else if (currentUserRole == 2) // Manager
                 {
-                    // FIXED: Materialize team member IDs first
                     var teamMemberIds = await _context.Users
-                        .Where(u => u.manager_id == currentUserId && u.is_active)
+                        .Where(u => u.manager_id == currentUserId)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
                     teamMemberIds.Add(currentUserId); // Add manager's own ID
-
                     query = query.Where(u => teamMemberIds.Contains(u.user_id));
                 }
                 // Admin sees all
@@ -180,7 +206,8 @@ namespace gasopper_crm_server.Services
                         RoleName = u.Role!.role_name,
                         ManagerName = u.Manager != null ? $"{u.Manager.first_name} {u.Manager.last_name}" : null,
                         IsActive = u.is_active,
-                        CreatedAt = u.created_at
+                        CreatedAt = u.created_at,
+                        RequiresPasswordReset = u.requires_password_reset // ENHANCED
                     })
                     .ToListAsync();
 
@@ -188,11 +215,48 @@ namespace gasopper_crm_server.Services
             }
             catch (Exception)
             {
-                // FIXED: Return empty list on error, not null
                 return new List<UserListResponseDto>();
             }
         }
 
+        // ENHANCED: New method for filtered users
+        public async Task<List<UserListResponseDto>> GetFilteredUsersAsync(int currentUserId, int currentUserRole, UserFilterDto filters)
+        {
+            try
+            {
+                var users = await GetUsersAsync(currentUserId, currentUserRole);
+
+                // Apply filters
+                if (!string.IsNullOrEmpty(filters.Status))
+                {
+                    bool isActive = filters.Status.ToLower() == "active";
+                    users = users.Where(u => u.IsActive == isActive).ToList();
+                }
+
+                if (!string.IsNullOrEmpty(filters.Role))
+                {
+                    users = users.Where(u => u.RoleName.Equals(filters.Role, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                if (filters.CreatedAfter.HasValue)
+                {
+                    users = users.Where(u => u.CreatedAt >= filters.CreatedAfter.Value).ToList();
+                }
+
+                if (filters.CreatedBefore.HasValue)
+                {
+                    users = users.Where(u => u.CreatedAt <= filters.CreatedBefore.Value).ToList();
+                }
+
+                return users;
+            }
+            catch (Exception)
+            {
+                return new List<UserListResponseDto>();
+            }
+        }
+
+        // ENHANCED: Manager reassignment permissions
         public async Task<UserResponseDto?> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole)
         {
             try
@@ -221,19 +285,33 @@ namespace gasopper_crm_server.Services
                 if (!string.IsNullOrEmpty(updateUserDto.LastName))
                     user.last_name = updateUserDto.LastName;
 
-                // Only Admin can change roles and managers
-                if (currentUserRole == 1)
+                // ENHANCED: Role changes - Admin only
+                if (currentUserRole == 1 && updateUserDto.RoleId.HasValue)
+                    user.role_id = updateUserDto.RoleId.Value;
+
+                // ENHANCED: Manager assignment - Admin can assign anyone, Manager can reassign their team
+                if (updateUserDto.ManagerId.HasValue)
                 {
-                    if (updateUserDto.RoleId.HasValue)
-                        user.role_id = updateUserDto.RoleId.Value;
-                    
-                    if (updateUserDto.ManagerId.HasValue)
+                    if (currentUserRole == 1) // Admin can assign anyone
+                    {
                         user.manager_id = updateUserDto.ManagerId.Value;
-                    
-                    if (updateUserDto.IsActive.HasValue)
-                        user.is_active = updateUserDto.IsActive.Value;
+                    }
+                    else if (currentUserRole == 2) // Manager can reassign their team members
+                    {
+                        // Verify the user being updated is in their team
+                        var isTeamMember = await _context.Users
+                            .AnyAsync(u => u.user_id == userId && u.manager_id == currentUserId);
+                        
+                        if (isTeamMember)
+                            user.manager_id = updateUserDto.ManagerId.Value;
+                    }
                 }
 
+                // ENHANCED: Active status - Admin only
+                if (currentUserRole == 1 && updateUserDto.IsActive.HasValue)
+                    user.is_active = updateUserDto.IsActive.Value;
+
+                user.last_updated = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
 
                 return await GetUserByIdAsync(userId, currentUserId, currentUserRole);
@@ -262,6 +340,7 @@ namespace gasopper_crm_server.Services
 
                 user.is_active = false;
                 user.jwt_token = null; // Invalidate token
+                user.last_updated = DateTime.UtcNow;
                 
                 await _context.SaveChangesAsync();
                 return true;
@@ -278,7 +357,7 @@ namespace gasopper_crm_server.Services
             {
                 var teamMembers = await _context.Users
                     .Include(u => u.Role)
-                    .Where(u => u.manager_id == managerId && u.is_active)
+                    .Where(u => u.manager_id == managerId)
                     .OrderBy(u => u.first_name)
                     .Select(u => new UserListResponseDto
                     {
@@ -290,7 +369,8 @@ namespace gasopper_crm_server.Services
                         PhoneNumber = u.phone_number,
                         RoleName = u.Role!.role_name,
                         IsActive = u.is_active,
-                        CreatedAt = u.created_at
+                        CreatedAt = u.created_at,
+                        RequiresPasswordReset = u.requires_password_reset // ENHANCED
                     })
                     .ToListAsync();
 
@@ -302,6 +382,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // ENHANCED: Clear password reset flag on successful change
         public async Task<bool> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto, int currentUserId)
         {
             try
@@ -318,6 +399,8 @@ namespace gasopper_crm_server.Services
                     return false;
 
                 user.password_hash = BCrypt.Net.BCrypt.HashPassword(changePasswordDto.NewPassword);
+                user.requires_password_reset = false; // ENHANCED: Clear reset flag
+                user.last_updated = DateTime.UtcNow;
                 
                 await _context.SaveChangesAsync();
                 return true;
@@ -349,27 +432,66 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // ENHANCED: Get available managers for assignment
+        public async Task<List<UserListResponseDto>> GetAvailableManagersAsync(int currentUserId, int currentUserRole)
+        {
+            try
+            {
+                var query = _context.Users
+                    .Include(u => u.Role)
+                    .Where(u => u.role_id == 2 && u.is_active); // Only active managers
+
+                // Apply role-based filtering
+                if (currentUserRole == 2) // Manager can see other managers at same level
+                {
+                    // Can assign to themselves or other managers
+                    query = query.Where(u => u.role_id == 2);
+                }
+                // Admin can see all managers
+
+                var managers = await query
+                    .OrderBy(u => u.first_name)
+                    .Select(u => new UserListResponseDto
+                    {
+                        UserId = u.user_id,
+                        EmployeeId = u.employee_id,
+                        FirstName = u.first_name,
+                        LastName = u.last_name,
+                        Email = u.email,
+                        PhoneNumber = u.phone_number,
+                        RoleName = u.Role!.role_name,
+                        IsActive = u.is_active,
+                        CreatedAt = u.created_at
+                    })
+                    .ToListAsync();
+
+                return managers;
+            }
+            catch (Exception)
+            {
+                return new List<UserListResponseDto>();
+            }
+        }
+
         private async Task<User?> GetEditableUserAsync(int userId, int currentUserId, int currentUserRole)
         {
             try
             {
                 var query = _context.Users.AsQueryable();
 
-                // FIXED: Apply role-based filtering with MATERIALIZED team member IDs
+                // Apply role-based filtering with MATERIALIZED team member IDs
                 if (currentUserRole == 3) // Salesperson can only edit themselves
                 {
                     query = query.Where(u => u.user_id == currentUserId);
                 }
                 else if (currentUserRole == 2) // Manager can edit self and team
                 {
-                    // FIXED: Materialize team member IDs first
                     var teamMemberIds = await _context.Users
-                        .Where(u => u.manager_id == currentUserId && u.is_active)
+                        .Where(u => u.manager_id == currentUserId)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
                     teamMemberIds.Add(currentUserId); // Add manager's own ID
-
                     query = query.Where(u => teamMemberIds.Contains(u.user_id));
                 }
                 // Admin can edit all

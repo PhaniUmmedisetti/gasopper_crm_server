@@ -59,6 +59,10 @@ namespace gasopper_crm_server.Models
         [Column("is_active")]
         public bool is_active { get; set; } = true;
 
+        // ENHANCED: Added password reset tracking
+        [Column("requires_password_reset")]
+        public bool requires_password_reset { get; set; } = false;
+
         [Required]
         [Column("iat")]
         public long iat { get; set; }

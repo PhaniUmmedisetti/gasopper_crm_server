@@ -29,6 +29,34 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = users, count = users.Count });
         }
 
+        // ENHANCED: Filtered users endpoint
+        [HttpGet("filtered")]
+        public async Task<IActionResult> GetFilteredUsers([FromQuery] string? status = null, [FromQuery] string? role = null, [FromQuery] DateTime? createdAfter = null, [FromQuery] DateTime? createdBefore = null)
+        {
+            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+            
+            var filters = new UserFilterDto
+            {
+                Status = status,
+                Role = role,
+                CreatedAfter = createdAfter,
+                CreatedBefore = createdBefore
+            };
+
+            var users = await _userService.GetFilteredUsersAsync(currentUserId, currentUserRole, filters);
+
+            return Ok(new { 
+                data = users, 
+                count = users.Count,
+                filters = new {
+                    status = filters.Status,
+                    role = filters.Role,
+                    createdAfter = filters.CreatedAfter,
+                    createdBefore = filters.CreatedBefore
+                }
+            });
+        }
+
         // ✅ ALL AUTHENTICATED USERS can view accessible user details
         [HttpGet("{id}")]
         public async Task<IActionResult> GetUser(int id)
@@ -128,6 +156,97 @@ namespace gasopper_crm_server.Controllers
             return Ok(roles);
         }
 
+        // ENHANCED: Get available managers for assignment dropdown
+        [HttpGet("managers")]
+        [Authorize(Roles = "Admin,Manager")]
+        public async Task<IActionResult> GetAvailableManagers()
+        {
+            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+            var managers = await _userService.GetAvailableManagersAsync(currentUserId, currentUserRole);
+
+            return Ok(new { data = managers, count = managers.Count });
+        }
+
+        // ENHANCED: User statistics with filtering
+        [HttpGet("stats")]
+        public async Task<IActionResult> GetUserStats([FromQuery] string? status = null, [FromQuery] string? role = null)
+        {
+            try
+            {
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                var users = await _userService.GetUsersAsync(currentUserId, currentUserRole);
+
+                // Apply filters if provided
+                if (!string.IsNullOrEmpty(status))
+                {
+                    bool isActive = status.ToLower() == "active";
+                    users = users.Where(u => u.IsActive == isActive).ToList();
+                }
+
+                if (!string.IsNullOrEmpty(role))
+                {
+                    users = users.Where(u => u.RoleName.Equals(role, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                var activeUsers = users.Count(u => u.IsActive);
+                var inactiveUsers = users.Count(u => !u.IsActive);
+                var requiresPasswordReset = users.Count(u => u.RequiresPasswordReset);
+
+                // Role breakdown
+                var roleBreakdown = users.GroupBy(u => u.RoleName)
+                    .Select(g => new { role = g.Key, count = g.Count() })
+                    .ToList();
+
+                var response = new
+                {
+                    total = users.Count,
+                    active = activeUsers,
+                    inactive = inactiveUsers,
+                    requiresPasswordReset = requiresPasswordReset,
+                    roleBreakdown = roleBreakdown,
+                    filters = new {
+                        status = status,
+                        role = role
+                    }
+                };
+
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error fetching user statistics", error = ex.Message });
+            }
+        }
+
+        // ENHANCED: Force password reset for a user (Admin only)
+        [HttpPost("{id}/force-password-reset")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> ForcePasswordReset(int id)
+        {
+            try
+            {
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                
+                // Cannot force reset on yourself
+                if (id == currentUserId)
+                    return BadRequest(new { message = "Cannot force password reset on yourself" });
+
+                var updateDto = new UpdateUserDto();
+                // This will be handled in the service layer by setting requires_password_reset = true
+                
+                var user = await _userService.UpdateUserAsync(id, updateDto, currentUserId, currentUserRole);
+                
+                if (user == null)
+                    return NotFound(new { message = "User not found or access denied" });
+
+                return Ok(new { message = "User will be required to reset password on next login" });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error forcing password reset", error = ex.Message });
+            }
+        }
+
         private (int userId, int roleId) GetCurrentUserInfo()
         {
             var identity = HttpContext.User.Identity as ClaimsIdentity;
@@ -136,30 +255,5 @@ namespace gasopper_crm_server.Controllers
 
             return (userId, roleId);
         }
-        [HttpGet("stats")]
-public async Task<IActionResult> GetUserStats()
-{
-    try
-    {
-        var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-        var users = await _userService.GetUsersAsync(currentUserId, currentUserRole);
-        
-        var activeUsers = users.Count(u => u.IsActive);
-        
-        var response = new
-        {
-            total = users.Count,
-            active = activeUsers
-        };
-        
-        return Ok(response);
     }
-    catch (Exception ex)
-    {
-        return StatusCode(500, new { message = "Error fetching user statistics", error = ex.Message });
-    }
-}
-    }
-
-
 }

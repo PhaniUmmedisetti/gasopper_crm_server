@@ -34,9 +34,9 @@ namespace gasopper_crm_server.DTOs
 
         public int? ManagerId { get; set; }
 
-        [Required]
+        // ENHANCED: Made password optional for auto-generation
         [MinLength(8)]
-        public string Password { get; set; } = string.Empty;
+        public string? Password { get; set; } = null;
     }
 
     public class UpdateUserDto
@@ -67,7 +67,7 @@ namespace gasopper_crm_server.DTOs
         public bool? IsActive { get; set; }
     }
 
-    // UPDATED - Complete user data response with manager hierarchy
+    // ENHANCED: Added password reset tracking
     public class UserResponseDto
     {
         public int UserId { get; set; }
@@ -94,12 +94,15 @@ namespace gasopper_crm_server.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime LastUpdated { get; set; }
         
+        // ENHANCED: Password reset tracking
+        public bool RequiresPasswordReset { get; set; } = false;
+        
         // JWT session info
         public long Iat { get; set; }
         public long Exp { get; set; }
     }
 
-    // UPDATED - List response with hierarchy info
+    // ENHANCED: Added password reset tracking
     public class UserListResponseDto
     {
         public int UserId { get; set; }
@@ -112,6 +115,9 @@ namespace gasopper_crm_server.DTOs
         public string? ManagerName { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedAt { get; set; }
+        
+        // ENHANCED: Password reset tracking
+        public bool RequiresPasswordReset { get; set; } = false;
     }
 
     public class ChangePasswordDto
@@ -122,5 +128,15 @@ namespace gasopper_crm_server.DTOs
         [Required]
         [MinLength(8)]
         public string NewPassword { get; set; } = string.Empty;
+    }
+
+    // ENHANCED: New DTO for filtering users
+    public class UserFilterDto
+    {
+        public string? Status { get; set; } // "active", "inactive", null (all)
+        public string? Role { get; set; } // "Admin", "Manager", "Salesperson", null (all)
+        public int? ManagerId { get; set; } // Filter by specific manager
+        public DateTime? CreatedAfter { get; set; } // Filter by creation date
+        public DateTime? CreatedBefore { get; set; } // Filter by creation date
     }
 }
