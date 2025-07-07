@@ -29,12 +29,12 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = users, count = users.Count });
         }
 
-        // ENHANCED: Filtered users endpoint
+        // Filtered users endpoint
         [HttpGet("filtered")]
         public async Task<IActionResult> GetFilteredUsers([FromQuery] string? status = null, [FromQuery] string? role = null, [FromQuery] DateTime? createdAfter = null, [FromQuery] DateTime? createdBefore = null)
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            
+
             var filters = new UserFilterDto
             {
                 Status = status,
@@ -45,10 +45,12 @@ namespace gasopper_crm_server.Controllers
 
             var users = await _userService.GetFilteredUsersAsync(currentUserId, currentUserRole, filters);
 
-            return Ok(new { 
-                data = users, 
+            return Ok(new
+            {
+                data = users,
                 count = users.Count,
-                filters = new {
+                filters = new
+                {
                     status = filters.Status,
                     role = filters.Role,
                     createdAfter = filters.CreatedAfter,
@@ -128,7 +130,8 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = teamMembers, count = teamMembers.Count });
         }
 
-        // ✅ ALL AUTHENTICATED USERS can change their own password
+        // COMMENTED OUT: Change password endpoint for OTP-only authentication
+        /*
         [HttpPost("{id}/change-password")]
         public async Task<IActionResult> ChangePassword(int id, [FromBody] ChangePasswordDto changePasswordDto)
         {
@@ -147,6 +150,7 @@ namespace gasopper_crm_server.Controllers
 
             return Ok(new { message = "Password changed successfully" });
         }
+        */
 
         // ✅ ALL AUTHENTICATED USERS can view available roles
         [HttpGet("roles")]
@@ -156,7 +160,7 @@ namespace gasopper_crm_server.Controllers
             return Ok(roles);
         }
 
-        // ENHANCED: Get available managers for assignment dropdown
+        // Get available managers for assignment dropdown
         [HttpGet("managers")]
         [Authorize(Roles = "Admin,Manager")]
         public async Task<IActionResult> GetAvailableManagers()
@@ -167,7 +171,7 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = managers, count = managers.Count });
         }
 
-        // ENHANCED: User statistics with filtering
+        // User statistics with filtering
         [HttpGet("stats")]
         public async Task<IActionResult> GetUserStats([FromQuery] string? status = null, [FromQuery] string? role = null)
         {
@@ -204,7 +208,8 @@ namespace gasopper_crm_server.Controllers
                     inactive = inactiveUsers,
                     requiresPasswordReset = requiresPasswordReset,
                     roleBreakdown = roleBreakdown,
-                    filters = new {
+                    filters = new
+                    {
                         status = status,
                         role = role
                     }
@@ -218,7 +223,7 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
-        // ENHANCED: Force password reset for a user (Admin only)
+        // Force password reset for a user (Admin only) - Can be repurposed for email verification later
         [HttpPost("{id}/force-password-reset")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> ForcePasswordReset(int id)
@@ -226,16 +231,16 @@ namespace gasopper_crm_server.Controllers
             try
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-                
+
                 // Cannot force reset on yourself
                 if (id == currentUserId)
                     return BadRequest(new { message = "Cannot force password reset on yourself" });
 
                 var updateDto = new UpdateUserDto();
                 // This will be handled in the service layer by setting requires_password_reset = true
-                
+
                 var user = await _userService.UpdateUserAsync(id, updateDto, currentUserId, currentUserRole);
-                
+
                 if (user == null)
                     return NotFound(new { message = "User not found or access denied" });
 

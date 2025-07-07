@@ -14,7 +14,10 @@ namespace gasopper_crm_server.Services
         Task<UserResponseDto?> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole);
         Task<bool> DeleteUserAsync(int userId, int currentUserId, int currentUserRole);
         Task<List<UserListResponseDto>> GetMyTeamAsync(int managerId);
-        Task<bool> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto, int currentUserId);
+        
+        // COMMENTED OUT: Password change method for OTP-only authentication
+        // Task<bool> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto, int currentUserId);
+        
         Task<List<object>> GetRolesAsync();
         Task<List<UserListResponseDto>> GetAvailableManagersAsync(int currentUserId, int currentUserRole);
     }
@@ -28,13 +31,15 @@ namespace gasopper_crm_server.Services
             _context = context;
         }
 
-        // ENHANCED: Default password generation
+        // COMMENTED OUT: Default password generation for OTP-only authentication
+        /*
         private string GenerateDefaultPassword()
         {
             var random = new Random();
             var digits = random.Next(1000, 9999);
             return $"Gas{digits}!";
         }
+        */
 
         public async Task<UserResponseDto?> CreateUserAsync(CreateUserDto createUserDto, int currentUserId, int currentUserRole)
         {
@@ -54,7 +59,7 @@ namespace gasopper_crm_server.Services
                 if (existingUser != null)
                     return null;
 
-                // ENHANCED: Auto-assign manager for Manager role creating Salesperson
+                // Auto-assign manager for Manager role creating Salesperson
                 var assignedManagerId = createUserDto.ManagerId;
                 if (currentUserRole == 2 && createUserDto.RoleId == 3)
                 {
@@ -71,10 +76,12 @@ namespace gasopper_crm_server.Services
                         return null;
                 }
 
-                // ENHANCED: Use provided password or generate default
+                // COMMENTED OUT: Password generation for OTP-only authentication
+                /*
                 var password = !string.IsNullOrEmpty(createUserDto.Password) 
                     ? createUserDto.Password 
                     : GenerateDefaultPassword();
+                */
 
                 var user = new User
                 {
@@ -86,9 +93,9 @@ namespace gasopper_crm_server.Services
                     last_name = createUserDto.LastName,
                     role_id = createUserDto.RoleId,
                     manager_id = assignedManagerId,
-                    password_hash = BCrypt.Net.BCrypt.HashPassword(password),
+                    password_hash = null, // NULL for OTP-only authentication
                     is_active = true,
-                    requires_password_reset = string.IsNullOrEmpty(createUserDto.Password), // ENHANCED: Flag for default password
+                    requires_password_reset = false, // Set to false since no password needed
                     iat = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                     exp = DateTimeOffset.UtcNow.AddYears(1).ToUnixTimeSeconds()
                 };
@@ -155,7 +162,7 @@ namespace gasopper_crm_server.Services
                     LastLogin = user.last_login,
                     CreatedAt = user.created_at,
                     LastUpdated = user.last_updated,
-                    RequiresPasswordReset = user.requires_password_reset, // ENHANCED
+                    RequiresPasswordReset = user.requires_password_reset,
                     Iat = user.iat,
                     Exp = user.exp
                 };
@@ -166,7 +173,6 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // ENHANCED: Include inactive users, remove filtering
         public async Task<List<UserListResponseDto>> GetUsersAsync(int currentUserId, int currentUserRole)
         {
             try
@@ -207,7 +213,7 @@ namespace gasopper_crm_server.Services
                         ManagerName = u.Manager != null ? $"{u.Manager.first_name} {u.Manager.last_name}" : null,
                         IsActive = u.is_active,
                         CreatedAt = u.created_at,
-                        RequiresPasswordReset = u.requires_password_reset // ENHANCED
+                        RequiresPasswordReset = u.requires_password_reset
                     })
                     .ToListAsync();
 
@@ -219,7 +225,6 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // ENHANCED: New method for filtered users
         public async Task<List<UserListResponseDto>> GetFilteredUsersAsync(int currentUserId, int currentUserRole, UserFilterDto filters)
         {
             try
@@ -256,7 +261,6 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // ENHANCED: Manager reassignment permissions
         public async Task<UserResponseDto?> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole)
         {
             try
@@ -285,11 +289,11 @@ namespace gasopper_crm_server.Services
                 if (!string.IsNullOrEmpty(updateUserDto.LastName))
                     user.last_name = updateUserDto.LastName;
 
-                // ENHANCED: Role changes - Admin only
+                // Role changes - Admin only
                 if (currentUserRole == 1 && updateUserDto.RoleId.HasValue)
                     user.role_id = updateUserDto.RoleId.Value;
 
-                // ENHANCED: Manager assignment - Admin can assign anyone, Manager can reassign their team
+                // Manager assignment - Admin can assign anyone, Manager can reassign their team
                 if (updateUserDto.ManagerId.HasValue)
                 {
                     if (currentUserRole == 1) // Admin can assign anyone
@@ -307,7 +311,7 @@ namespace gasopper_crm_server.Services
                     }
                 }
 
-                // ENHANCED: Active status - Admin only
+                // Active status - Admin only
                 if (currentUserRole == 1 && updateUserDto.IsActive.HasValue)
                     user.is_active = updateUserDto.IsActive.Value;
 
@@ -370,7 +374,7 @@ namespace gasopper_crm_server.Services
                         RoleName = u.Role!.role_name,
                         IsActive = u.is_active,
                         CreatedAt = u.created_at,
-                        RequiresPasswordReset = u.requires_password_reset // ENHANCED
+                        RequiresPasswordReset = u.requires_password_reset
                     })
                     .ToListAsync();
 
@@ -382,7 +386,8 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // ENHANCED: Clear password reset flag on successful change
+        // COMMENTED OUT: Password change functionality for OTP-only authentication
+        /*
         public async Task<bool> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto, int currentUserId)
         {
             try
@@ -399,7 +404,7 @@ namespace gasopper_crm_server.Services
                     return false;
 
                 user.password_hash = BCrypt.Net.BCrypt.HashPassword(changePasswordDto.NewPassword);
-                user.requires_password_reset = false; // ENHANCED: Clear reset flag
+                user.requires_password_reset = false;
                 user.last_updated = DateTime.UtcNow;
                 
                 await _context.SaveChangesAsync();
@@ -410,6 +415,7 @@ namespace gasopper_crm_server.Services
                 return false;
             }
         }
+        */
 
         public async Task<List<object>> GetRolesAsync()
         {
@@ -432,7 +438,6 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // ENHANCED: Get available managers for assignment
         public async Task<List<UserListResponseDto>> GetAvailableManagersAsync(int currentUserId, int currentUserRole)
         {
             try
