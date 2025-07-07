@@ -8,3 +8,6 @@
 bin/
 obj/
 .vs/
+
+# test
+/Controllers/LeadController.cs
