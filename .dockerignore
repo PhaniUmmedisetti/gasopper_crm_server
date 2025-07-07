@@ -1,0 +1,10 @@
+# ignore your Git metadata
+.git
+.git/**
+.gitignore
+
+
+# ignore build outputs & IDE cruft
+bin/
+obj/
+.vs/

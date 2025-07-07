@@ -1,0 +1,14 @@
+# Dockerfile.migrate — EF Core Migration Runner
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS migrator
+WORKDIR /src
+
+# Copy everything (solution, project, and code)
+COPY . .
+
+# Install EF Core CLI tools
+RUN dotnet tool install --global dotnet-ef
+ENV PATH="$PATH:/root/.dotnet/tools"
+
+# Run EF migrations for your project
+ENTRYPOINT ["dotnet", "ef", "database", "update", "--project", "./gasopper_crm_server/CRM.csproj"]
