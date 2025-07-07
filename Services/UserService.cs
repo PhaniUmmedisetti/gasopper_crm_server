@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using gasopper_crm_server.Data;
 using gasopper_crm_server.DTOs;
 using gasopper_crm_server.Models;
+using gasopper_crm_server.Helpers;
 
 namespace gasopper_crm_server.Services
 {
@@ -52,12 +53,15 @@ namespace gasopper_crm_server.Services
                 if (currentUserRole == 2 && createUserDto.RoleId != 3) // Manager can only create Salesperson
                     return null;
 
-                // Check if email or employee ID already exists
+                // Check if email already exists (EmployeeId will be auto-generated)
                 var existingUser = await _context.Users
-                    .FirstOrDefaultAsync(u => u.email == createUserDto.Email || u.employee_id == createUserDto.EmployeeId);
+                    .FirstOrDefaultAsync(u => u.email == createUserDto.Email);
                 
                 if (existingUser != null)
                     return null;
+
+                // ADDED: Auto-generate Employee ID based on role
+                var generatedEmployeeId = await EmployeeIdGenerator.GenerateEmployeeIdAsync(_context, createUserDto.RoleId);
 
                 // Auto-assign manager for Manager role creating Salesperson
                 var assignedManagerId = createUserDto.ManagerId;
@@ -85,7 +89,7 @@ namespace gasopper_crm_server.Services
 
                 var user = new User
                 {
-                    employee_id = createUserDto.EmployeeId,
+                    employee_id = generatedEmployeeId, // UPDATED: Use auto-generated Employee ID
                     email = createUserDto.Email,
                     phone_number = createUserDto.PhoneNumber,
                     address = createUserDto.Address,
@@ -270,9 +274,9 @@ namespace gasopper_crm_server.Services
                 if (user == null)
                     return null;
 
-                // Update only provided fields
-                if (!string.IsNullOrEmpty(updateUserDto.EmployeeId))
-                    user.employee_id = updateUserDto.EmployeeId;
+                // UPDATED: Employee ID updates are not allowed (auto-generated and immutable)
+                // if (!string.IsNullOrEmpty(updateUserDto.EmployeeId))
+                //     user.employee_id = updateUserDto.EmployeeId;
                 
                 if (!string.IsNullOrEmpty(updateUserDto.Email))
                     user.email = updateUserDto.Email;
