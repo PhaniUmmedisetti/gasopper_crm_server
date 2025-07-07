@@ -6,14 +6,43 @@ using gasopper_crm_server.Helpers;
 
 namespace gasopper_crm_server.Services
 {
+    // ADDED: Custom result class for better error handling
+    public class ServiceResult<T>
+    {
+        public bool Success { get; set; }
+        public T? Data { get; set; }
+        public string? ErrorMessage { get; set; }
+        public string? ErrorCode { get; set; }
+
+        public static ServiceResult<T> SuccessResult(T data)
+        {
+            return new ServiceResult<T>
+            {
+                Success = true,
+                Data = data
+            };
+        }
+
+        public static ServiceResult<T> ErrorResult(string message, string? code = null)
+        {
+            return new ServiceResult<T>
+            {
+                Success = false,
+                ErrorMessage = message,
+                ErrorCode = code
+            };
+        }
+    }
+
     public interface IUserService
     {
-        Task<UserResponseDto?> CreateUserAsync(CreateUserDto createUserDto, int currentUserId, int currentUserRole);
+        // UPDATED: Return ServiceResult for better error handling
+        Task<ServiceResult<UserResponseDto>> CreateUserAsync(CreateUserDto createUserDto, int currentUserId, int currentUserRole);
         Task<UserResponseDto?> GetUserByIdAsync(int userId, int currentUserId, int currentUserRole);
         Task<List<UserListResponseDto>> GetUsersAsync(int currentUserId, int currentUserRole);
         Task<List<UserListResponseDto>> GetFilteredUsersAsync(int currentUserId, int currentUserRole, UserFilterDto filters);
-        Task<UserResponseDto?> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole);
-        Task<bool> DeleteUserAsync(int userId, int currentUserId, int currentUserRole);
+        Task<ServiceResult<UserResponseDto>> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole);
+        Task<ServiceResult<bool>> DeleteUserAsync(int userId, int currentUserId, int currentUserRole);
         Task<List<UserListResponseDto>> GetMyTeamAsync(int managerId);
         
         // COMMENTED OUT: Password change method for OTP-only authentication
@@ -42,28 +71,55 @@ namespace gasopper_crm_server.Services
         }
         */
 
-        public async Task<UserResponseDto?> CreateUserAsync(CreateUserDto createUserDto, int currentUserId, int currentUserRole)
+        public async Task<ServiceResult<UserResponseDto>> CreateUserAsync(CreateUserDto createUserDto, int currentUserId, int currentUserRole)
         {
             try
             {
-                // Validation: Only Admin can create any user type, Manager can only create Salesperson
+                // ENHANCED: Detailed role-based validation with specific error messages
                 if (currentUserRole == 3) // Salesperson cannot create users
-                    return null;
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "Access denied. Salespeople cannot create other users.", 
+                        "INSUFFICIENT_PERMISSIONS"
+                    );
+                }
                 
                 if (currentUserRole == 2 && createUserDto.RoleId != 3) // Manager can only create Salesperson
-                    return null;
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "Access denied. Managers can only create Salesperson accounts.", 
+                        "ROLE_RESTRICTION"
+                    );
+                }
 
-                // Check if email already exists (EmployeeId will be auto-generated)
+                // ENHANCED: Check for existing email with detailed message
                 var existingUser = await _context.Users
                     .FirstOrDefaultAsync(u => u.email == createUserDto.Email);
                 
                 if (existingUser != null)
-                    return null;
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        $"A user with email '{createUserDto.Email}' already exists in the system.", 
+                        "EMAIL_ALREADY_EXISTS"
+                    );
+                }
 
-                // ADDED: Auto-generate Employee ID based on role
+                // ENHANCED: Validate role exists
+                var roleExists = await _context.Roles
+                    .AnyAsync(r => r.role_id == createUserDto.RoleId);
+                
+                if (!roleExists)
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        $"Invalid role ID '{createUserDto.RoleId}'. Please select a valid role.", 
+                        "INVALID_ROLE"
+                    );
+                }
+
+                // Auto-generate Employee ID based on role
                 var generatedEmployeeId = await EmployeeIdGenerator.GenerateEmployeeIdAsync(_context, createUserDto.RoleId);
 
-                // Auto-assign manager for Manager role creating Salesperson
+                // ENHANCED: Manager assignment validation with detailed errors
                 var assignedManagerId = createUserDto.ManagerId;
                 if (currentUserRole == 2 && createUserDto.RoleId == 3)
                 {
@@ -71,25 +127,62 @@ namespace gasopper_crm_server.Services
                     assignedManagerId = createUserDto.ManagerId ?? currentUserId;
                 }
 
-                // If manager is creating, validate they can only assign to themselves or valid managers
-                if (currentUserRole == 2 && assignedManagerId != null && assignedManagerId != currentUserId)
+                // Validate manager assignment
+                if (assignedManagerId.HasValue)
                 {
                     var targetManager = await _context.Users
-                        .FirstOrDefaultAsync(u => u.user_id == assignedManagerId && u.role_id == 2);
+                        .Include(u => u.Role)
+                        .FirstOrDefaultAsync(u => u.user_id == assignedManagerId.Value);
+                    
                     if (targetManager == null)
-                        return null;
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Manager with ID '{assignedManagerId}' not found.", 
+                            "MANAGER_NOT_FOUND"
+                        );
+                    }
+                    
+                    if (targetManager.role_id != 2) // Must be a Manager role
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Selected user '{targetManager.first_name} {targetManager.last_name}' is not a Manager and cannot be assigned as a manager.", 
+                            "INVALID_MANAGER_ROLE"
+                        );
+                    }
+                    
+                    if (!targetManager.is_active)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Manager '{targetManager.first_name} {targetManager.last_name}' is inactive and cannot be assigned.", 
+                            "INACTIVE_MANAGER"
+                        );
+                    }
+                    
+                    // Manager permission check
+                    if (currentUserRole == 2 && assignedManagerId != currentUserId)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            "Access denied. Managers can only assign users to themselves.", 
+                            "MANAGER_ASSIGNMENT_RESTRICTION"
+                        );
+                    }
                 }
 
-                // COMMENTED OUT: Password generation for OTP-only authentication
-                /*
-                var password = !string.IsNullOrEmpty(createUserDto.Password) 
-                    ? createUserDto.Password 
-                    : GenerateDefaultPassword();
-                */
+                // ENHANCED: Check for Employee ID collision (very rare but possible)
+                var employeeIdExists = await _context.Users
+                    .AnyAsync(u => u.employee_id == generatedEmployeeId);
+                
+                if (employeeIdExists)
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "Employee ID generation conflict. Please try again.", 
+                        "EMPLOYEE_ID_CONFLICT"
+                    );
+                }
 
                 var user = new User
                 {
-                    employee_id = generatedEmployeeId, // UPDATED: Use auto-generated Employee ID
+                    employee_id = generatedEmployeeId,
                     email = createUserDto.Email,
                     phone_number = createUserDto.PhoneNumber,
                     address = createUserDto.Address,
@@ -99,7 +192,7 @@ namespace gasopper_crm_server.Services
                     manager_id = assignedManagerId,
                     password_hash = null, // NULL for OTP-only authentication
                     is_active = true,
-                    requires_password_reset = false, // Set to false since no password needed
+                    requires_password_reset = false,
                     iat = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                     exp = DateTimeOffset.UtcNow.AddYears(1).ToUnixTimeSeconds()
                 };
@@ -107,14 +200,303 @@ namespace gasopper_crm_server.Services
                 _context.Users.Add(user);
                 await _context.SaveChangesAsync();
 
-                return await GetUserByIdAsync(user.user_id, currentUserId, currentUserRole);
+                var createdUser = await GetUserByIdAsync(user.user_id, currentUserId, currentUserRole);
+                
+                if (createdUser == null)
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "User was created but could not be retrieved. Please refresh and try again.", 
+                        "POST_CREATION_ERROR"
+                    );
+                }
+
+                return ServiceResult<UserResponseDto>.SuccessResult(createdUser);
             }
-            catch (Exception)
+            catch (DbUpdateException dbEx)
             {
-                return null;
+                // Database-specific errors
+                if (dbEx.InnerException?.Message.Contains("UNIQUE") == true || 
+                    dbEx.InnerException?.Message.Contains("duplicate") == true)
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "A user with this information already exists. Please check email and employee details.", 
+                        "DUPLICATE_ENTRY"
+                    );
+                }
+                
+                return ServiceResult<UserResponseDto>.ErrorResult(
+                    "Database error occurred while creating user. Please try again.", 
+                    "DATABASE_ERROR"
+                );
+            }
+            catch (Exception ex)
+            {
+                // Log the actual exception for debugging (you should use proper logging)
+                // _logger.LogError(ex, "Error creating user");
+                
+                return ServiceResult<UserResponseDto>.ErrorResult(
+                    "An unexpected error occurred while creating the user. Please try again.", 
+                    "INTERNAL_ERROR"
+                );
             }
         }
 
+        public async Task<ServiceResult<UserResponseDto>> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole)
+        {
+            try
+            {
+                // Get the user with role-based access check
+                var user = await GetEditableUserAsync(userId, currentUserId, currentUserRole);
+                if (user == null)
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "User not found or you don't have permission to edit this user.", 
+                        "USER_NOT_FOUND_OR_ACCESS_DENIED"
+                    );
+                }
+
+                // ENHANCED: Email uniqueness check for updates
+                if (!string.IsNullOrEmpty(updateUserDto.Email) && updateUserDto.Email != user.email)
+                {
+                    var emailExists = await _context.Users
+                        .AnyAsync(u => u.email == updateUserDto.Email && u.user_id != userId);
+                    
+                    if (emailExists)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Email '{updateUserDto.Email}' is already in use by another user.", 
+                            "EMAIL_ALREADY_EXISTS"
+                        );
+                    }
+                }
+
+                // ENHANCED: Role change validation
+                if (updateUserDto.RoleId.HasValue && updateUserDto.RoleId.Value != user.role_id)
+                {
+                    if (currentUserRole != 1) // Only Admin can change roles
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            "Access denied. Only Administrators can change user roles.", 
+                            "INSUFFICIENT_PERMISSIONS"
+                        );
+                    }
+                    
+                    var roleExists = await _context.Roles
+                        .AnyAsync(r => r.role_id == updateUserDto.RoleId.Value);
+                    
+                    if (!roleExists)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Invalid role ID '{updateUserDto.RoleId.Value}'. Please select a valid role.", 
+                            "INVALID_ROLE"
+                        );
+                    }
+                }
+
+                // ENHANCED: Manager assignment validation for updates
+                if (updateUserDto.ManagerId.HasValue)
+                {
+                    var targetManager = await _context.Users
+                        .Include(u => u.Role)
+                        .FirstOrDefaultAsync(u => u.user_id == updateUserDto.ManagerId.Value);
+                    
+                    if (targetManager == null)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Manager with ID '{updateUserDto.ManagerId.Value}' not found.", 
+                            "MANAGER_NOT_FOUND"
+                        );
+                    }
+                    
+                    if (targetManager.role_id != 2)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Selected user '{targetManager.first_name} {targetManager.last_name}' is not a Manager.", 
+                            "INVALID_MANAGER_ROLE"
+                        );
+                    }
+                    
+                    if (!targetManager.is_active)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            $"Manager '{targetManager.first_name} {targetManager.last_name}' is inactive.", 
+                            "INACTIVE_MANAGER"
+                        );
+                    }
+                    
+                    // Prevent circular manager assignment
+                    if (updateUserDto.ManagerId.Value == userId)
+                    {
+                        return ServiceResult<UserResponseDto>.ErrorResult(
+                            "A user cannot be assigned as their own manager.", 
+                            "CIRCULAR_MANAGER_ASSIGNMENT"
+                        );
+                    }
+                }
+
+                // Apply updates
+                if (!string.IsNullOrEmpty(updateUserDto.Email))
+                    user.email = updateUserDto.Email;
+                
+                if (!string.IsNullOrEmpty(updateUserDto.PhoneNumber))
+                    user.phone_number = updateUserDto.PhoneNumber;
+                
+                if (!string.IsNullOrEmpty(updateUserDto.Address))
+                    user.address = updateUserDto.Address;
+                
+                if (!string.IsNullOrEmpty(updateUserDto.FirstName))
+                    user.first_name = updateUserDto.FirstName;
+                
+                if (!string.IsNullOrEmpty(updateUserDto.LastName))
+                    user.last_name = updateUserDto.LastName;
+
+                // Role changes - Admin only
+                if (currentUserRole == 1 && updateUserDto.RoleId.HasValue)
+                    user.role_id = updateUserDto.RoleId.Value;
+
+                // Manager assignment
+                if (updateUserDto.ManagerId.HasValue)
+                {
+                    if (currentUserRole == 1) // Admin can assign anyone
+                    {
+                        user.manager_id = updateUserDto.ManagerId.Value;
+                    }
+                    else if (currentUserRole == 2) // Manager can reassign their team
+                    {
+                        var isTeamMember = await _context.Users
+                            .AnyAsync(u => u.user_id == userId && u.manager_id == currentUserId);
+                        
+                        if (isTeamMember)
+                            user.manager_id = updateUserDto.ManagerId.Value;
+                        else
+                        {
+                            return ServiceResult<UserResponseDto>.ErrorResult(
+                                "You can only reassign users from your own team.", 
+                                "TEAM_ASSIGNMENT_RESTRICTION"
+                            );
+                        }
+                    }
+                }
+
+                // Active status - Admin only
+                if (currentUserRole == 1 && updateUserDto.IsActive.HasValue)
+                    user.is_active = updateUserDto.IsActive.Value;
+
+                user.last_updated = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                var updatedUser = await GetUserByIdAsync(userId, currentUserId, currentUserRole);
+                
+                if (updatedUser == null)
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "User was updated but could not be retrieved. Please refresh and try again.", 
+                        "POST_UPDATE_ERROR"
+                    );
+                }
+
+                return ServiceResult<UserResponseDto>.SuccessResult(updatedUser);
+            }
+            catch (DbUpdateException dbEx)
+            {
+                if (dbEx.InnerException?.Message.Contains("UNIQUE") == true || 
+                    dbEx.InnerException?.Message.Contains("duplicate") == true)
+                {
+                    return ServiceResult<UserResponseDto>.ErrorResult(
+                        "The updated information conflicts with existing data. Please check email and other details.", 
+                        "DUPLICATE_ENTRY"
+                    );
+                }
+                
+                return ServiceResult<UserResponseDto>.ErrorResult(
+                    "Database error occurred while updating user. Please try again.", 
+                    "DATABASE_ERROR"
+                );
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<UserResponseDto>.ErrorResult(
+                    "An unexpected error occurred while updating the user. Please try again.", 
+                    "INTERNAL_ERROR"
+                );
+            }
+        }
+
+        public async Task<ServiceResult<bool>> DeleteUserAsync(int userId, int currentUserId, int currentUserRole)
+        {
+            try
+            {
+                // Only Admin can delete users
+                if (currentUserRole != 1)
+                {
+                    return ServiceResult<bool>.ErrorResult(
+                        "Access denied. Only Administrators can deactivate users.", 
+                        "INSUFFICIENT_PERMISSIONS"
+                    );
+                }
+
+                // Cannot delete yourself
+                if (userId == currentUserId)
+                {
+                    return ServiceResult<bool>.ErrorResult(
+                        "You cannot deactivate your own account.", 
+                        "SELF_DELETION_FORBIDDEN"
+                    );
+                }
+
+                var user = await _context.Users
+                    .Include(u => u.Role)
+                    .FirstOrDefaultAsync(u => u.user_id == userId);
+                
+                if (user == null)
+                {
+                    return ServiceResult<bool>.ErrorResult(
+                        $"User with ID '{userId}' not found.", 
+                        "USER_NOT_FOUND"
+                    );
+                }
+
+                if (!user.is_active)
+                {
+                    return ServiceResult<bool>.ErrorResult(
+                        $"User '{user.first_name} {user.last_name}' is already inactive.", 
+                        "USER_ALREADY_INACTIVE"
+                    );
+                }
+
+                // ENHANCED: Check if user has team members before deactivation
+                var hasTeamMembers = await _context.Users
+                    .AnyAsync(u => u.manager_id == userId && u.is_active);
+                
+                if (hasTeamMembers)
+                {
+                    var teamCount = await _context.Users
+                        .CountAsync(u => u.manager_id == userId && u.is_active);
+                    
+                    return ServiceResult<bool>.ErrorResult(
+                        $"Cannot deactivate user '{user.first_name} {user.last_name}' as they manage {teamCount} active team member(s). Please reassign their team members first.", 
+                        "HAS_ACTIVE_TEAM_MEMBERS"
+                    );
+                }
+
+                user.is_active = false;
+                user.jwt_token = null; // Invalidate token
+                user.last_updated = DateTime.UtcNow;
+                
+                await _context.SaveChangesAsync();
+                
+                return ServiceResult<bool>.SuccessResult(true);
+            }
+            catch (Exception ex)
+            {
+                return ServiceResult<bool>.ErrorResult(
+                    "An unexpected error occurred while deactivating the user. Please try again.", 
+                    "INTERNAL_ERROR"
+                );
+            }
+        }
+
+        // Keep existing methods unchanged for backward compatibility
         public async Task<UserResponseDto?> GetUserByIdAsync(int userId, int currentUserId, int currentUserRole)
         {
             try
@@ -177,6 +559,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // Keep all other existing methods unchanged...
         public async Task<List<UserListResponseDto>> GetUsersAsync(int currentUserId, int currentUserRole)
         {
             try
@@ -265,100 +648,6 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        public async Task<UserResponseDto?> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole)
-        {
-            try
-            {
-                // Get the user with role-based access check
-                var user = await GetEditableUserAsync(userId, currentUserId, currentUserRole);
-                if (user == null)
-                    return null;
-
-                // UPDATED: Employee ID updates are not allowed (auto-generated and immutable)
-                // if (!string.IsNullOrEmpty(updateUserDto.EmployeeId))
-                //     user.employee_id = updateUserDto.EmployeeId;
-                
-                if (!string.IsNullOrEmpty(updateUserDto.Email))
-                    user.email = updateUserDto.Email;
-                
-                if (!string.IsNullOrEmpty(updateUserDto.PhoneNumber))
-                    user.phone_number = updateUserDto.PhoneNumber;
-                
-                if (!string.IsNullOrEmpty(updateUserDto.Address))
-                    user.address = updateUserDto.Address;
-                
-                if (!string.IsNullOrEmpty(updateUserDto.FirstName))
-                    user.first_name = updateUserDto.FirstName;
-                
-                if (!string.IsNullOrEmpty(updateUserDto.LastName))
-                    user.last_name = updateUserDto.LastName;
-
-                // Role changes - Admin only
-                if (currentUserRole == 1 && updateUserDto.RoleId.HasValue)
-                    user.role_id = updateUserDto.RoleId.Value;
-
-                // Manager assignment - Admin can assign anyone, Manager can reassign their team
-                if (updateUserDto.ManagerId.HasValue)
-                {
-                    if (currentUserRole == 1) // Admin can assign anyone
-                    {
-                        user.manager_id = updateUserDto.ManagerId.Value;
-                    }
-                    else if (currentUserRole == 2) // Manager can reassign their team members
-                    {
-                        // Verify the user being updated is in their team
-                        var isTeamMember = await _context.Users
-                            .AnyAsync(u => u.user_id == userId && u.manager_id == currentUserId);
-                        
-                        if (isTeamMember)
-                            user.manager_id = updateUserDto.ManagerId.Value;
-                    }
-                }
-
-                // Active status - Admin only
-                if (currentUserRole == 1 && updateUserDto.IsActive.HasValue)
-                    user.is_active = updateUserDto.IsActive.Value;
-
-                user.last_updated = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
-
-                return await GetUserByIdAsync(userId, currentUserId, currentUserRole);
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-
-        public async Task<bool> DeleteUserAsync(int userId, int currentUserId, int currentUserRole)
-        {
-            try
-            {
-                // Only Admin can delete users
-                if (currentUserRole != 1)
-                    return false;
-
-                // Cannot delete yourself
-                if (userId == currentUserId)
-                    return false;
-
-                var user = await _context.Users.FindAsync(userId);
-                if (user == null)
-                    return false;
-
-                user.is_active = false;
-                user.jwt_token = null; // Invalidate token
-                user.last_updated = DateTime.UtcNow;
-                
-                await _context.SaveChangesAsync();
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
         public async Task<List<UserListResponseDto>> GetMyTeamAsync(int managerId)
         {
             try
@@ -389,37 +678,6 @@ namespace gasopper_crm_server.Services
                 return new List<UserListResponseDto>();
             }
         }
-
-        // COMMENTED OUT: Password change functionality for OTP-only authentication
-        /*
-        public async Task<bool> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto, int currentUserId)
-        {
-            try
-            {
-                // Users can only change their own password
-                if (userId != currentUserId)
-                    return false;
-
-                var user = await _context.Users.FindAsync(userId);
-                if (user == null)
-                    return false;
-
-                if (!BCrypt.Net.BCrypt.Verify(changePasswordDto.CurrentPassword, user.password_hash))
-                    return false;
-
-                user.password_hash = BCrypt.Net.BCrypt.HashPassword(changePasswordDto.NewPassword);
-                user.requires_password_reset = false;
-                user.last_updated = DateTime.UtcNow;
-                
-                await _context.SaveChangesAsync();
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-        */
 
         public async Task<List<object>> GetRolesAsync()
         {

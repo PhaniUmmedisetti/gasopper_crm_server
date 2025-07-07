@@ -78,15 +78,37 @@ namespace gasopper_crm_server.Controllers
         public async Task<IActionResult> CreateUser([FromBody] CreateUserDto createUserDto)
         {
             if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            {
+                // ENHANCED: Return detailed validation errors
+                var errors = ModelState
+                    .Where(x => x.Value?.Errors.Count > 0)
+                    .ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => kvp.Value?.Errors.Select(e => e.ErrorMessage).ToArray()
+                    );
+
+                return BadRequest(new
+                {
+                    message = "Validation failed",
+                    errorCode = "VALIDATION_ERROR",
+                    errors = errors
+                });
+            }
 
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var user = await _userService.CreateUserAsync(createUserDto, currentUserId, currentUserRole);
+            var result = await _userService.CreateUserAsync(createUserDto, currentUserId, currentUserRole);
 
-            if (user == null)
-                return BadRequest(new { message = "Unable to create user. Check role permissions and data validity." });
+            if (!result.Success)
+            {
+                // ENHANCED: Return specific error details from service
+                return BadRequest(new
+                {
+                    message = result.ErrorMessage,
+                    errorCode = result.ErrorCode
+                });
+            }
 
-            return CreatedAtAction(nameof(GetUser), new { id = user.UserId }, user);
+            return CreatedAtAction(nameof(GetUser), new { id = result.Data!.UserId }, result.Data);
         }
 
         // ✅ ALL AUTHENTICATED USERS can update accessible users (self or managed users)
@@ -94,15 +116,46 @@ namespace gasopper_crm_server.Controllers
         public async Task<IActionResult> UpdateUser(int id, [FromBody] UpdateUserDto updateUserDto)
         {
             if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            {
+                // ENHANCED: Return detailed validation errors
+                var errors = ModelState
+                    .Where(x => x.Value?.Errors.Count > 0)
+                    .ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => kvp.Value?.Errors.Select(e => e.ErrorMessage).ToArray()
+                    );
+
+                return BadRequest(new
+                {
+                    message = "Validation failed",
+                    errorCode = "VALIDATION_ERROR",
+                    errors = errors
+                });
+            }
 
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var user = await _userService.UpdateUserAsync(id, updateUserDto, currentUserId, currentUserRole);
+            var result = await _userService.UpdateUserAsync(id, updateUserDto, currentUserId, currentUserRole);
 
-            if (user == null)
-                return NotFound(new { message = "User not found or access denied" });
+            if (!result.Success)
+            {
+                // ENHANCED: Return specific error details from service
+                if (result.ErrorCode == "USER_NOT_FOUND_OR_ACCESS_DENIED")
+                {
+                    return NotFound(new
+                    {
+                        message = result.ErrorMessage,
+                        errorCode = result.ErrorCode
+                    });
+                }
 
-            return Ok(user);
+                return BadRequest(new
+                {
+                    message = result.ErrorMessage,
+                    errorCode = result.ErrorCode
+                });
+            }
+
+            return Ok(result.Data);
         }
 
         // 🔒 ONLY Admin can delete/deactivate users
@@ -111,10 +164,32 @@ namespace gasopper_crm_server.Controllers
         public async Task<IActionResult> DeleteUser(int id)
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var success = await _userService.DeleteUserAsync(id, currentUserId, currentUserRole);
+            var result = await _userService.DeleteUserAsync(id, currentUserId, currentUserRole);
 
-            if (!success)
-                return BadRequest(new { message = "Unable to delete user. Cannot delete self or user not found." });
+            if (!result.Success)
+            {
+                // ENHANCED: Return specific error details from service
+                if (result.ErrorCode == "USER_NOT_FOUND")
+                {
+                    return NotFound(new
+                    {
+                        message = result.ErrorMessage,
+                        errorCode = result.ErrorCode
+                    });
+                }
+
+                if (result.ErrorCode == "INSUFFICIENT_PERMISSIONS" ||
+                    result.ErrorCode == "SELF_DELETION_FORBIDDEN")
+                {
+                    return Forbid(result.ErrorMessage);
+                }
+
+                return BadRequest(new
+                {
+                    message = result.ErrorMessage,
+                    errorCode = result.ErrorCode
+                });
+            }
 
             return Ok(new { message = "User deactivated successfully" });
         }
@@ -156,8 +231,19 @@ namespace gasopper_crm_server.Controllers
         [HttpGet("roles")]
         public async Task<IActionResult> GetRoles()
         {
-            var roles = await _userService.GetRolesAsync();
-            return Ok(roles);
+            try
+            {
+                var roles = await _userService.GetRolesAsync();
+                return Ok(roles);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "Error fetching roles",
+                    errorCode = "INTERNAL_ERROR"
+                });
+            }
         }
 
         // Get available managers for assignment dropdown
@@ -165,10 +251,21 @@ namespace gasopper_crm_server.Controllers
         [Authorize(Roles = "Admin,Manager")]
         public async Task<IActionResult> GetAvailableManagers()
         {
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var managers = await _userService.GetAvailableManagersAsync(currentUserId, currentUserRole);
+            try
+            {
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                var managers = await _userService.GetAvailableManagersAsync(currentUserId, currentUserRole);
 
-            return Ok(new { data = managers, count = managers.Count });
+                return Ok(new { data = managers, count = managers.Count });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new
+                {
+                    message = "Error fetching available managers",
+                    errorCode = "INTERNAL_ERROR"
+                });
+            }
         }
 
         // User statistics with filtering
@@ -219,7 +316,11 @@ namespace gasopper_crm_server.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "Error fetching user statistics", error = ex.Message });
+                return StatusCode(500, new
+                {
+                    message = "Error fetching user statistics",
+                    errorCode = "INTERNAL_ERROR"
+                });
             }
         }
 
@@ -234,21 +335,42 @@ namespace gasopper_crm_server.Controllers
 
                 // Cannot force reset on yourself
                 if (id == currentUserId)
-                    return BadRequest(new { message = "Cannot force password reset on yourself" });
+                    return BadRequest(new
+                    {
+                        message = "Cannot force password reset on yourself",
+                        errorCode = "SELF_ACTION_FORBIDDEN"
+                    });
 
                 var updateDto = new UpdateUserDto();
-                // This will be handled in the service layer by setting requires_password_reset = true
+                var result = await _userService.UpdateUserAsync(id, updateDto, currentUserId, currentUserRole);
 
-                var user = await _userService.UpdateUserAsync(id, updateDto, currentUserId, currentUserRole);
+                if (!result.Success)
+                {
+                    if (result.ErrorCode == "USER_NOT_FOUND_OR_ACCESS_DENIED")
+                    {
+                        return NotFound(new
+                        {
+                            message = result.ErrorMessage,
+                            errorCode = result.ErrorCode
+                        });
+                    }
 
-                if (user == null)
-                    return NotFound(new { message = "User not found or access denied" });
+                    return BadRequest(new
+                    {
+                        message = result.ErrorMessage,
+                        errorCode = result.ErrorCode
+                    });
+                }
 
                 return Ok(new { message = "User will be required to reset password on next login" });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { message = "Error forcing password reset", error = ex.Message });
+                return StatusCode(500, new
+                {
+                    message = "Error forcing password reset",
+                    errorCode = "INTERNAL_ERROR"
+                });
             }
         }
 
