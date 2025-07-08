@@ -1,5 +1,5 @@
-// REPLACE your entire GasStationsController.cs with this complete production-ready version
-// All endpoints with proper error handling, logging, role-based access + NEW SIGN-OFF FUNCTIONALITY
+// FINAL FIXED GasStationsController.cs - Corrected role-based sign-off with proper parameter passing
+// FIXES: Sign-off endpoints now pass currentUserRole parameter correctly
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -42,7 +42,7 @@ namespace gasopper_crm_server.Controllers
                     active = stats.TotalStations - stats.CompleteStations,
                     completionRate = stats.CompletionRate,
 
-                    // NEW: Sign-off statistics
+                    // Sign-off statistics
                     signedOff = stats.SignedOffStations,
                     pendingSignOff = stats.PendingSignOffStations,
                     signOffRate = stats.SignOffRate,
@@ -67,7 +67,6 @@ namespace gasopper_crm_server.Controllers
 
         /// <summary>
         /// Get all gas stations with role-based filtering
-        /// NEW ENDPOINT for frontend gas stations list page
         /// </summary>
         [HttpGet("get-stations")]
         public async Task<IActionResult> GetGasStations()
@@ -285,8 +284,8 @@ namespace gasopper_crm_server.Controllers
         }
 
         /// <summary>
-        /// NEW: Sign off a gas station (permanently freeze it)
-        /// Only the creator of the station can sign it off
+        /// FINAL FIXED: Sign off a gas station (permanently freeze it)
+        /// Uses role-based permissions - Admin/Manager/Salesperson can sign off based on access rights
         /// Station must have all fields filled before sign-off
         /// </summary>
         [HttpPost("{id}/sign-off")]
@@ -306,22 +305,23 @@ namespace gasopper_crm_server.Controllers
 
             try
             {
-                var (currentUserId, _) = GetCurrentUserInfo();
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
 
-                Console.WriteLine($"[DEBUG] SignOffStation called - StationId: {id}, UserId: {currentUserId}");
+                Console.WriteLine($"[DEBUG] SignOffStation called - StationId: {id}, UserId: {currentUserId}, Role: {currentUserRole}");
 
-                var success = await _gasStationService.SignOffStationAsync(id, currentUserId);
+                // FIXED: Pass role parameter for role-based permission checking
+                var success = await _gasStationService.SignOffStationAsync(id, currentUserId, currentUserRole);
 
                 if (!success)
                 {
                     Console.WriteLine($"[ERROR] Failed to sign off station {id}");
-                    return BadRequest(new { message = "Unable to sign off station. Station not found, not owned by you, already signed off, or not ready for sign-off." });
+                    return BadRequest(new { message = "Unable to sign off station. Station not found, access denied, already signed off, or not ready for sign-off." });
                 }
 
-                Console.WriteLine($"[DEBUG] Station {id} signed off successfully by user {currentUserId}");
+                Console.WriteLine($"[DEBUG] Station {id} signed off successfully by user {currentUserId} (role: {currentUserRole})");
 
                 // Return updated station data
-                var updatedStation = await _gasStationService.GetGasStationByIdAsync(id, currentUserId, 1); // Use admin role for retrieval
+                var updatedStation = await _gasStationService.GetGasStationByIdAsync(id, currentUserId, currentUserRole);
                 return Ok(new 
                 { 
                     message = "Gas station signed off successfully",
@@ -336,20 +336,22 @@ namespace gasopper_crm_server.Controllers
         }
 
         /// <summary>
-        /// NEW: Check if current user can sign off a specific station
+        /// FINAL FIXED: Check if current user can sign off a specific station
+        /// Uses role-based permissions for consistency
         /// </summary>
         [HttpGet("{id}/can-sign-off")]
         public async Task<IActionResult> CanSignOffStation(int id)
         {
             try
             {
-                var (currentUserId, _) = GetCurrentUserInfo();
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
 
-                Console.WriteLine($"[DEBUG] CanSignOffStation called - StationId: {id}, UserId: {currentUserId}");
+                Console.WriteLine($"[DEBUG] CanSignOffStation called - StationId: {id}, UserId: {currentUserId}, Role: {currentUserRole}");
 
-                var canSignOff = await _gasStationService.CanUserSignOffStationAsync(id, currentUserId);
+                // FIXED: Pass role parameter for role-based permission checking
+                var canSignOff = await _gasStationService.CanUserSignOffStationAsync(id, currentUserId, currentUserRole);
 
-                Console.WriteLine($"[DEBUG] User {currentUserId} can sign off station {id}: {canSignOff}");
+                Console.WriteLine($"[DEBUG] User {currentUserId} (role: {currentUserRole}) can sign off station {id}: {canSignOff}");
 
                 return Ok(new { canSignOff = canSignOff });
             }
