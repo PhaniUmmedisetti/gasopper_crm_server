@@ -492,9 +492,17 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // FIXED: Station completion now based on signed-off status
         private static bool IsStationComplete(GasStation station)
         {
-            // FIXED: Updated to use new address fields
+            // A station is only considered "complete" if it's signed off
+            return station.is_signed_off;
+        }
+
+        // NEW: Separate method to check if station fields are complete (for internal use)
+        private static bool IsStationFieldsComplete(GasStation station)
+        {
+            // Check if all required and optional fields are filled
             var hasRequiredFields = !string.IsNullOrWhiteSpace(station.station_name)
                                    && !string.IsNullOrWhiteSpace(station.address_line_1)
                                    && !string.IsNullOrWhiteSpace(station.city)
@@ -569,14 +577,14 @@ namespace gasopper_crm_server.Services
         private OpportunityResponseDto MapToOpportunityResponseDto(Opportunity opportunity)
         {
             var stations = opportunity.GasStations.ToList();
-            var completeStations = stations.Count(IsStationComplete);
+            var completeStations = stations.Count(IsStationComplete); // Now counts signed-off stations only
             var incompleteStations = stations.Count - completeStations;
             var completionPercentage = stations.Any() ? Math.Round((double)completeStations / stations.Count * 100, 1) : 0.0;
 
             var stationDtos = stations.Select(s =>
             {
                 var missingFields = GetMissingFields(s);
-                var isComplete = IsStationComplete(s);
+                var isComplete = IsStationComplete(s); // Now checks signed-off status
                 var stationCompletionPercentage = CalculateStationCompletionPercentage(s);
 
                 return new OpportunityStationDto
@@ -591,7 +599,7 @@ namespace gasopper_crm_server.Services
                     NumberOfPumps = s.number_of_pumps,
                     NumberOfEmployees = s.number_of_employees,
                     StationTypeName = s.StationType?.type_name,
-                    IsComplete = isComplete,
+                    IsComplete = isComplete, // Now based on signed-off status
                     CompletionPercentage = stationCompletionPercentage,
                     MissingFields = missingFields,
                     CreatedAt = s.created_at,
@@ -642,9 +650,9 @@ namespace gasopper_crm_server.Services
                 CreatedBy = opportunity.created_by,
                 CreatedByName = $"{opportunity.CreatedByUser?.first_name ?? ""} {opportunity.CreatedByUser?.last_name ?? ""}".Trim(),
                 TotalStations = stations.Count,
-                CompleteStations = completeStations,
+                CompleteStations = completeStations, // Now counts signed-off stations only
                 IncompleteStations = incompleteStations,
-                CompletionPercentage = completionPercentage,
+                CompletionPercentage = completionPercentage, // Now based on signed-off stations
                 Stations = stationDtos,
                 CreatedAt = opportunity.created_at,
                 LastUpdated = opportunity.last_updated,
@@ -655,7 +663,7 @@ namespace gasopper_crm_server.Services
         private OpportunityListDto MapToOpportunityListDto(Opportunity opportunity)
         {
             var stations = opportunity.GasStations.ToList();
-            var completeStations = stations.Count(IsStationComplete);
+            var completeStations = stations.Count(IsStationComplete); // Now counts signed-off stations only
             var completionPercentage = stations.Any() ? Math.Round((double)completeStations / stations.Count * 100, 1) : 0.0;
 
             return new OpportunityListDto
@@ -668,8 +676,8 @@ namespace gasopper_crm_server.Services
                 AssignedToName = $"{opportunity.AssignedToUser?.first_name ?? ""} {opportunity.AssignedToUser?.last_name ?? ""}".Trim(),
                 ActualStations = opportunity.actual_stations,
                 TotalStations = stations.Count,
-                CompleteStations = completeStations,
-                CompletionPercentage = completionPercentage,
+                CompleteStations = completeStations, // Now counts signed-off stations only
+                CompletionPercentage = completionPercentage, // Now based on signed-off stations
                 CreatedAt = opportunity.created_at,
                 LastUpdated = opportunity.last_updated
             };
