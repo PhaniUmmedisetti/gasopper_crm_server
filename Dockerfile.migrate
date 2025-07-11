@@ -1,14 +1,20 @@
-# Dockerfile.migrate — EF Core Migration Runner
-
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS migrator
+FROM mcr.microsoft.com/dotnet/sdk:7.0 AS runtime
 WORKDIR /src
 
-# Copy everything (solution, project, and code)
-COPY . .
+# Copy project files
+COPY CRM.sln ./
+COPY CRM.csproj ./
+COPY . ./
 
-# Install EF Core CLI tools
-RUN dotnet tool install --global dotnet-ef
-ENV PATH="$PATH:/root/.dotnet/tools"
+# Install PostgreSQL client and EF tools
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+RUN dotnet tool install --global dotnet-ef --version 7.0.20
+ENV PATH="${PATH}:/root/.dotnet/tools"
 
-# Run EF migrations for your project
-ENTRYPOINT ["dotnet", "ef", "database", "update", "--project", "./gasopper_crm_server/CRM.csproj"]
+# Set environment
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+# Create bulletproof migration script
+# Create bulletproof migration script
+RUN echo '#!/bin/bash\nset -e\necho "🔄 ULTIMATE MIGRATION STARTING..."\n\n# Wait for database\nuntil pg_isready -h database -p 5432 -U postgres; do\n    echo "Waiting for database..."\n    sleep 5\ndone\necho "✅ Database ready!"\n\n# Clear any bad migration state\necho "🧹 Cleaning migration state..."\nPGPASSWORD=crm@123 psql -h database -U postgres -d gasopper_crm -c "DELETE FROM \\"__EFMigrationsHistory\\";" 2>/dev/null || true\n\n# Remove existing migrations\nrm -rf Migrations/\n\n# Create comprehensive migration\necho "🆕 Creating migration..."\ndotnet ef migrations add ComprehensiveSchema --verbose\n\n# Apply migration\necho "🚀 Applying migration..."\ndotnet ef database update --verbose\n\n# Insert reference data\necho "📊 Setting up reference data..."\nPGPASSWORD=crm@123 psql -h database -U postgres -d gasopper_crm << '\''SQL'\''\nINSERT INTO roles (role_name) VALUES ('\''Admin'\''), ('\''Manager'\''), ('\''Salesperson'\'') \nON CONFLICT (role_name) DO NOTHING;\n\nINSERT INTO station_types (type_name) VALUES \n('\''Full Service'\''), ('\''Self Service'\''), ('\''Truck Stop'\''), ('\''Convenience Store'\'') \nON CONFLICT (type_name) DO NOTHING;\n\nINSERT INTO lead_statuses (status_name, description) VALUES \n('\''New'\'', '\''New lead received'\''),\n('\''Qualified'\'', '\''Lead has been qualified'\''),\n('\''Converted'\'', '\''Lead converted to opportunity'\'')\nON CONFLICT (status_name) DO NOTHING;\n\nINSERT INTO opportunity_statuses (status_name, description) VALUES \n('\''Planning'\'', '\''Opportunity in planning phase'\''),\n('\''Complete'\'', '\''Opportunity completed'\'')\nON CONFLICT (status_name) DO NOTHING;\nSQL\n\n# Verify tables\necho "✅ Verifying tables:"\nPGPASSWORD=crm@123 psql -h database -U postgres -d gasopper_crm -c "\\dt"\n\necho "✅ MIGRATION COMPLETED SUCCESSFULLY!"' > /migrate.sh && chmod +x /migrate.sh
+ENTRYPOINT ["/migrate.sh"]

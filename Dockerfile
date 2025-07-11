@@ -1,25 +1,21 @@
-# 1) Build & publish
 FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
 WORKDIR /src
 
-# copy solution + project file(s) and restore
-COPY *.sln ./
+# Copy solution and project files
+COPY CRM.sln ./
 COPY CRM.csproj ./
-RUN dotnet restore
+RUN dotnet restore CRM.sln
 
-# copy everything else & publish
+# Copy source code
 COPY . ./
-RUN dotnet publish -c Release -o /app/publish
+RUN dotnet publish CRM.csproj -c Release -o /app/publish
 
-# 2) Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS runtime
 WORKDIR /app
-
-# copy publish output
 COPY --from=build /app/publish .
 
-# default to Production unless overridden
 ENV ASPNETCORE_ENVIRONMENT=Production
+ENV ASPNETCORE_URLS=http://+:5211
+EXPOSE 5211
 
-# your app’s entrypoint
 ENTRYPOINT ["dotnet", "CRM.dll"]

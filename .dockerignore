@@ -1,13 +1,20 @@
-# ignore your Git metadata
+# Git
 .git
 .git/**
 .gitignore
 
-
-# ignore build outputs & IDE cruft
+# Build outputs
 bin/
 obj/
 .vs/
+.vscode/
 
-# test
-/Controllers/LeadController.cs
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Don't ignore Migrations folder - we need it for EF
+# Migrations/
