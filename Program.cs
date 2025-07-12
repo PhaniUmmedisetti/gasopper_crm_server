@@ -5,6 +5,7 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 using gasopper_crm_server.Data;
 using gasopper_crm_server.Services;
+using gasopper_crm_server.Services.Database;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +25,11 @@ builder.Services.AddScoped<IGasStationService, GasStationService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 
+// 🆕 REGISTER DATABASE SEEDING SERVICES
+builder.Services.AddScoped<IDatabaseSeeder, SmartSeeder>();
+builder.Services.AddScoped<DataMigrationService>();
+builder.Services.AddScoped<DatabaseHealthService>();
+
 // ADD CORS FOR FRONTEND - FIXED
 builder.Services.AddCors(options =>
 {
@@ -34,6 +40,10 @@ builder.Services.AddCors(options =>
              .AllowAnyHeader();
    });
 });
+
+// 🆕 ADD HEALTH CHECKS
+builder.Services.AddHealthChecks()
+    .AddCheck<DatabaseHealthService>("database");
 
 // Configure JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"];
@@ -114,7 +124,7 @@ builder.Services.AddSwaggerGen(c =>
    {
        Title = "GasopperCRM API",
        Version = "v1",
-       Description = "Complete Gas Station CRM API with Gas Station Management"
+       Description = "Complete Gas Station CRM API with Automated Database Seeding"
    });
 
    // JWT Bearer token configuration
@@ -146,7 +156,64 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// Test database connection
+// 🚀 AUTO-SEED DATABASE ON STARTUP - CRITICAL SECTION
+Console.WriteLine("🌱 Starting automated database seeding process...");
+using (var scope = app.Services.CreateScope())
+{
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    
+    try
+    {
+        logger.LogInformation("🔄 Starting database initialization...");
+        
+        var context = scope.ServiceProvider.GetRequiredService<GasopperDbContext>();
+        
+        // Apply EF Core migrations first
+        logger.LogInformation("📦 Applying Entity Framework migrations...");
+        await context.Database.MigrateAsync();
+        logger.LogInformation("✅ Entity Framework migrations completed");
+        
+        // Apply data migrations and seeding
+        logger.LogInformation("🌱 Starting data migration and seeding...");
+        var migrationService = scope.ServiceProvider.GetRequiredService<DataMigrationService>();
+        var success = await migrationService.ApplyDataMigrationsAsync();
+        
+        if (!success)
+        {
+            logger.LogError("❌ Data migration failed - application startup aborted");
+            throw new InvalidOperationException("Database seeding failed - cannot start application");
+        }
+        
+        // Perform health check
+        var healthService = scope.ServiceProvider.GetRequiredService<DatabaseHealthService>();
+        var healthResult = await healthService.CheckHealthAsync(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckContext());
+        
+        if (healthResult.Status == Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy)
+        {
+            logger.LogInformation("✅ Database is ready and fully seeded");
+            logger.LogInformation("📊 Health Status: {Status}", healthResult.Description);
+        }
+        else
+        {
+            logger.LogWarning("⚠️ Database health check: {Status} - {Description}", 
+                healthResult.Status, healthResult.Description);
+            
+            if (healthResult.Status == Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy)
+            {
+                logger.LogError("❌ Database is unhealthy - application startup aborted");
+                throw new InvalidOperationException("Database health check failed - cannot start application");
+            }
+        }
+        
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Database initialization failed");
+        throw; // Fail fast if database setup fails
+    }
+}
+
+// Test database connection (keeping existing functionality)
 try
 {
    using (var scope = app.Services.CreateScope())
@@ -183,6 +250,9 @@ if (app.Environment.IsDevelopment())
    app.UseSwaggerUI();
 }
 
+// 🆕 ADD HEALTH CHECK ENDPOINT
+app.MapHealthChecks("/health");
+
 // CRITICAL: CORS MUST COME FIRST
 app.UseCors("AllowFrontend");
 
@@ -194,8 +264,10 @@ app.MapControllers();
 
 Console.WriteLine("🚀 API Server starting...");
 Console.WriteLine("📱 Swagger: http://localhost:5211/swagger");
+Console.WriteLine("🔍 Health Check: http://localhost:5211/health");
 Console.WriteLine("🌐 CORS: Enabled for all origins");
 Console.WriteLine("🔐 JWT debugging enabled - All validations disabled for debugging");
 Console.WriteLine("⛽ Gas Station Management: READY FOR TESTING");
+Console.WriteLine("🌱 Database Seeding: FULLY AUTOMATED - NO MANUAL STEPS REQUIRED");
 
 app.Run();
