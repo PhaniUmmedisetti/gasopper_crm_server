@@ -548,8 +548,7 @@ namespace gasopper_crm_server.Services
                 var totalStations = opportunity.GasStations.Count;
                 var signedOffStations = opportunity.GasStations.Count(gs => gs.is_signed_off);
 
-                int newStatusId = (totalStations > 0 && signedOffStations == totalStations) ? 2 : 1;
-
+                int newStatusId = (totalStations > 0 && signedOffStations == totalStations) ? 3 : 2; // 3 = Complete, 2 = Active
                 if (opportunity.status_id != newStatusId)
                 {
                     opportunity.status_id = newStatusId;
