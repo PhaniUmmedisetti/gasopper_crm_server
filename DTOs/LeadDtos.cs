@@ -24,7 +24,6 @@ namespace gasopper_crm_server.DTOs
         [Range(1, int.MaxValue, ErrorMessage = "Expected stations must be greater than 0")]
         public int ExpectedStations { get; set; }
 
-        // Referral information (all optional)
         [MaxLength(100)]
         public string? ReferralName { get; set; }
 
@@ -37,7 +36,6 @@ namespace gasopper_crm_server.DTOs
 
         public string? ReferralAddress { get; set; }
 
-        // Assignment (optional - defaults to current user if not specified)
         public int? AssignedTo { get; set; }
     }
 
@@ -58,7 +56,6 @@ namespace gasopper_crm_server.DTOs
         [Range(1, int.MaxValue, ErrorMessage = "Expected stations must be greater than 0")]
         public int? ExpectedStations { get; set; }
 
-        // Referral information (all optional)
         [MaxLength(100)]
         public string? ReferralName { get; set; }
 
@@ -71,11 +68,9 @@ namespace gasopper_crm_server.DTOs
 
         public string? ReferralAddress { get; set; }
 
-        // Assignment (Admin/Manager only)
         public int? AssignedTo { get; set; }
     }
 
-    // SIMPLIFIED - Only 2 statuses: New (1) or Converted (2)
     public class UpdateLeadStatusDto
     {
         [Required]
@@ -89,7 +84,6 @@ namespace gasopper_crm_server.DTOs
         public int AssignedTo { get; set; }
     }
 
-    // CLEANED - Removed all color/order/final status references
     public class LeadResponseDto
     {
         public int LeadId { get; set; }
@@ -99,37 +93,29 @@ namespace gasopper_crm_server.DTOs
         public string Address { get; set; } = string.Empty;
         public int ExpectedStations { get; set; }
 
-        // Referral information
         public string? ReferralName { get; set; }
         public string? ReferralEmail { get; set; }
         public string? ReferralPhone { get; set; }
         public string? ReferralAddress { get; set; }
 
-        // SIMPLIFIED Status information - removed color_code, is_final
         public int? StatusId { get; set; }
         public string? StatusName { get; set; }
 
-        // Assignment information
         public int AssignedTo { get; set; }
         public string AssignedToName { get; set; } = string.Empty;
         public int CreatedBy { get; set; }
         public string CreatedByName { get; set; } = string.Empty;
 
-        // Timestamps
         public DateTime CreatedAt { get; set; }
         public DateTime LastUpdated { get; set; }
 
-        // Opportunity information (if converted)
         public int? OpportunityId { get; set; }
         public bool HasOpportunity { get; set; }
+        public string? OpportunityStatus { get; set; }
 
-        public string? OpportunityStatus { get; set; } // Updated from Stage to Status
-
-        // Soft delete status
         public bool IsDeleted { get; set; }
     }
 
-    // CLEANED - Removed color references
     public class LeadListResponseDto
     {
         public int LeadId { get; set; }
@@ -139,6 +125,7 @@ namespace gasopper_crm_server.DTOs
         public int ExpectedStations { get; set; }
         public string? StatusName { get; set; }
         public string AssignedToName { get; set; } = string.Empty;
+        public string CreatedByName { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
         public DateTime LastUpdated { get; set; }
         public bool HasOpportunity { get; set; }
@@ -151,7 +138,6 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string OwnerName { get; set; } = string.Empty;
 
-        // UPDATED: Use split address fields instead of single OwnerAddress
         [Required]
         [MaxLength(200)]
         public string AddressLine1 { get; set; } = string.Empty;
@@ -174,7 +160,6 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string Country { get; set; } = "United States";
 
-        // ADDED: Actual number of stations field
         [Required]
         [Range(1, int.MaxValue, ErrorMessage = "Actual stations must be greater than 0")]
         public int ActualStations { get; set; }
@@ -190,6 +175,19 @@ namespace gasopper_crm_server.DTOs
         public double ConversionRate { get; set; }
         public int AverageDaysToConvert { get; set; }
         public Dictionary<string, int> StatusBreakdown { get; set; } = new Dictionary<string, int>();
+    }
 
+    public class PaginationDto
+    {
+        public int CurrentPage { get; set; }
+        public int TotalPages { get; set; }
+        public int TotalItems { get; set; }
+        public int PageSize { get; set; }
+    }
+
+    public class PaginatedLeadResponseDto
+    {
+        public List<LeadListResponseDto> Data { get; set; } = new List<LeadListResponseDto>();
+        public PaginationDto Pagination { get; set; } = new PaginationDto();
     }
 }

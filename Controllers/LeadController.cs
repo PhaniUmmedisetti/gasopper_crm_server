@@ -18,16 +18,32 @@ namespace gasopper_crm_server.Controllers
             _leadService = leadService;
         }
 
+        // BACKWARD COMPATIBLE: Return old format by default, new format with pagination=true
         [HttpGet]
-        public async Task<IActionResult> GetLeads([FromQuery] bool includeDeleted = false)
+        public async Task<IActionResult> GetLeads(
+            [FromQuery] int page = 1, 
+            [FromQuery] int pageSize = 20, 
+            [FromQuery] bool includeDeleted = false,
+            [FromQuery] bool pagination = false)
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var leads = await _leadService.GetLeadsAsync(currentUserId, currentUserRole, includeDeleted);
-
-            return Ok(new { data = leads, count = leads.Count });
+            
+            if (pagination)
+            {
+                // NEW: Return paginated format
+                var paginatedResult = await _leadService.GetLeadsAsync(currentUserId, currentUserRole, page, pageSize, includeDeleted);
+                return Ok(paginatedResult);
+            }
+            else
+            {
+                // OLD: Return all data in old format for backward compatibility
+                var allLeads = await _leadService.GetLeadsAsync(currentUserId, currentUserRole, 1, 10000, includeDeleted);
+                return Ok(new { data = allLeads.Data, count = allLeads.Pagination.TotalItems });
+            }
         }
 
-        [HttpGet("{id}")]
+        // FIXED: Use route constraint to ensure only integers match
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetLead(int id)
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
@@ -39,81 +55,16 @@ namespace gasopper_crm_server.Controllers
             return Ok(lead);
         }
 
-        [HttpPost]
-        public async Task<IActionResult> CreateLead([FromBody] CreateLeadDto createLeadDto)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var lead = await _leadService.CreateLeadAsync(createLeadDto, currentUserId, currentUserRole);
-
-            if (lead == null)
-                return BadRequest(new { message = "Unable to create lead. Check assignment permissions." });
-
-            return CreatedAtAction(nameof(GetLead), new { id = lead.LeadId }, lead);
-        }
-
-        [HttpPut("{id}")]
-        public async Task<IActionResult> UpdateLead(int id, [FromBody] UpdateLeadDto updateLeadDto)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var lead = await _leadService.UpdateLeadAsync(id, updateLeadDto, currentUserId, currentUserRole);
-
-            if (lead == null)
-                return NotFound(new { message = "Lead not found or access denied" });
-
-            return Ok(lead);
-        }
-
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteLead(int id)
+        // FIXED: Explicit route for paginated - now guaranteed to not conflict
+        [HttpGet("paginated")]
+        public async Task<IActionResult> GetLeadsPaginated(
+            [FromQuery] int page = 1, 
+            [FromQuery] int pageSize = 20, 
+            [FromQuery] bool includeDeleted = false)
         {
             var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var success = await _leadService.DeleteLeadAsync(id, currentUserId, currentUserRole);
-
-            if (!success)
-                return NotFound(new { message = "Lead not found or access denied" });
-
-            return Ok(new { message = "Lead deleted successfully" });
-        }
-
-        [HttpPut("{id}/status")]
-        public async Task<IActionResult> UpdateLeadStatus(int id, [FromBody] UpdateLeadStatusDto updateStatusDto)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var lead = await _leadService.UpdateLeadStatusAsync(id, updateStatusDto, currentUserId, currentUserRole);
-
-            if (lead == null)
-                return NotFound(new { message = "Lead not found, access denied, or invalid status" });
-
-            return Ok(lead);
-        }
-
-        [HttpPost("{id}/convert-to-opportunity")]
-        public async Task<IActionResult> ConvertToOpportunity(int id, [FromBody] ConvertLeadToOpportunityDto convertDto)
-        {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
-
-            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-            var lead = await _leadService.ConvertToOpportunityAsync(id, convertDto, currentUserId, currentUserRole);
-
-            if (lead == null)
-                return BadRequest(new { message = "Unable to convert lead. Lead may not exist, already be converted, or access denied." });
-
-            return Ok(new
-            {
-                message = "Lead converted to opportunity successfully",
-                lead = lead,
-                opportunityId = lead.OpportunityId
-            });
+            var result = await _leadService.GetLeadsAsync(currentUserId, currentUserRole, page, pageSize, includeDeleted);
+            return Ok(result);
         }
 
         [HttpGet("my-leads")]
@@ -135,9 +86,6 @@ namespace gasopper_crm_server.Controllers
             return Ok(new { data = leads, count = leads.Count });
         }
 
-
-        // Replace the GetLeadStats method in your LeadsController.cs
-
         [HttpGet("stats")]
         public async Task<IActionResult> GetLeadStats()
         {
@@ -146,19 +94,16 @@ namespace gasopper_crm_server.Controllers
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
                 var stats = await _leadService.GetLeadStatsAsync(currentUserId, currentUserRole);
 
-                // Return FULL stats data that both dashboard and leads page can use
                 var response = new
                 {
                     totalLeads = stats.TotalLeads,
                     newLeads = stats.NewLeads,
-                    convertedLeads = stats.ConvertedLeads,  // CRITICAL: Include this field
+                    convertedLeads = stats.ConvertedLeads,
                     conversionRate = stats.ConversionRate,
                     averageDaysToConvert = stats.AverageDaysToConvert,
                     statusBreakdown = stats.StatusBreakdown,
-
-                    // LEGACY SUPPORT: Keep old field names for existing frontend code
                     total = stats.TotalLeads,
-                    newThisWeek = stats.NewLeads,  // Note: This is actually "New Leads" not "New This Week"
+                    newThisWeek = stats.NewLeads,
                 };
 
                 return Ok(response);
@@ -176,7 +121,84 @@ namespace gasopper_crm_server.Controllers
             return Ok(statuses);
         }
 
-        [HttpPut("{id}/assign")]
+        [HttpPost]
+        public async Task<IActionResult> CreateLead([FromBody] CreateLeadDto createLeadDto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+            var lead = await _leadService.CreateLeadAsync(createLeadDto, currentUserId, currentUserRole);
+
+            if (lead == null)
+                return BadRequest(new { message = "Unable to create lead. Check assignment permissions." });
+
+            return CreatedAtAction(nameof(GetLead), new { id = lead.LeadId }, lead);
+        }
+
+        [HttpPut("{id:int}")]
+        public async Task<IActionResult> UpdateLead(int id, [FromBody] UpdateLeadDto updateLeadDto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+            var lead = await _leadService.UpdateLeadAsync(id, updateLeadDto, currentUserId, currentUserRole);
+
+            if (lead == null)
+                return NotFound(new { message = "Lead not found or access denied" });
+
+            return Ok(lead);
+        }
+
+        [HttpDelete("{id:int}")]
+        public async Task<IActionResult> DeleteLead(int id)
+        {
+            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+            var success = await _leadService.DeleteLeadAsync(id, currentUserId, currentUserRole);
+
+            if (!success)
+                return NotFound(new { message = "Lead not found or access denied" });
+
+            return Ok(new { message = "Lead deleted successfully" });
+        }
+
+        [HttpPut("{id:int}/status")]
+        public async Task<IActionResult> UpdateLeadStatus(int id, [FromBody] UpdateLeadStatusDto updateStatusDto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+            var lead = await _leadService.UpdateLeadStatusAsync(id, updateStatusDto, currentUserId, currentUserRole);
+
+            if (lead == null)
+                return NotFound(new { message = "Lead not found, access denied, or invalid status" });
+
+            return Ok(lead);
+        }
+
+        [HttpPost("{id:int}/convert-to-opportunity")]
+        public async Task<IActionResult> ConvertToOpportunity(int id, [FromBody] ConvertLeadToOpportunityDto convertDto)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+
+            var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+            var lead = await _leadService.ConvertToOpportunityAsync(id, convertDto, currentUserId, currentUserRole);
+
+            if (lead == null)
+                return BadRequest(new { message = "Unable to convert lead. Lead may not exist, already be converted, or access denied." });
+
+            return Ok(new
+            {
+                message = "Lead converted to opportunity successfully",
+                lead = lead,
+                opportunityId = lead.OpportunityId
+            });
+        }
+
+        [HttpPut("{id:int}/assign")]
         [Authorize(Roles = "Admin,Manager")]
         public async Task<IActionResult> AssignLead(int id, [FromBody] AssignLeadDto assignDto)
         {

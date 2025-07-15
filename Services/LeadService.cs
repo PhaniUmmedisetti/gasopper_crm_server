@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using gasopper_crm_server.Data;
 using gasopper_crm_server.DTOs;
 using gasopper_crm_server.Models;
+using gasopper_crm_server.Helpers;
 
 namespace gasopper_crm_server.Services
 {
@@ -9,7 +10,7 @@ namespace gasopper_crm_server.Services
     {
         Task<LeadResponseDto?> CreateLeadAsync(CreateLeadDto createLeadDto, int currentUserId, int currentUserRole);
         Task<LeadResponseDto?> GetLeadByIdAsync(int leadId, int currentUserId, int currentUserRole);
-        Task<List<LeadListResponseDto>> GetLeadsAsync(int currentUserId, int currentUserRole, bool includeDeleted = false);
+        Task<PaginatedLeadResponseDto> GetLeadsAsync(int currentUserId, int currentUserRole, int page = 1, int pageSize = 20, bool includeDeleted = false);
         Task<LeadResponseDto?> UpdateLeadAsync(int leadId, UpdateLeadDto updateLeadDto, int currentUserId, int currentUserRole);
         Task<bool> DeleteLeadAsync(int leadId, int currentUserId, int currentUserRole);
         Task<LeadResponseDto?> UpdateLeadStatusAsync(int leadId, UpdateLeadStatusDto updateStatusDto, int currentUserId, int currentUserRole);
@@ -33,10 +34,8 @@ namespace gasopper_crm_server.Services
         {
             try
             {
-                // Salespeople can create leads assigned to themselves
                 var assignedTo = createLeadDto.AssignedTo ?? currentUserId;
 
-                // Only Admin/Manager can assign to others
                 if (createLeadDto.AssignedTo.HasValue && createLeadDto.AssignedTo != currentUserId && currentUserRole == 3)
                     return null;
 
@@ -53,7 +52,7 @@ namespace gasopper_crm_server.Services
                     referral_address = createLeadDto.ReferralAddress,
                     assigned_to = assignedTo,
                     created_by = currentUserId,
-                    status_id = 1 // New
+                    status_id = 1
                 };
 
                 _context.Leads.Add(lead);
@@ -77,12 +76,11 @@ namespace gasopper_crm_server.Services
                     .Include(l => l.Status)
                     .Where(l => l.lead_id == leadId && !l.is_deleted);
 
-                // Apply role-based filtering
-                if (currentUserRole == 3) // Salesperson - own only
+                if (currentUserRole == 3)
                 {
                     query = query.Where(l => l.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2) // Manager - own + team
+                else if (currentUserRole == 2)
                 {
                     var teamIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -92,17 +90,15 @@ namespace gasopper_crm_server.Services
 
                     query = query.Where(l => teamIds.Contains(l.assigned_to));
                 }
-                // Admin sees all
 
                 var lead = await query.FirstOrDefaultAsync();
                 if (lead == null) return null;
 
-                // FIXED: Check for opportunity dynamically with role-based filtering
                 var hasOpportunity = await _context.Opportunities
                     .Where(o => o.lead_id == leadId && !o.is_deleted)
-                    .Where(o => currentUserRole == 1 || // Admin sees all
-                               (currentUserRole == 3 && o.assigned_to == currentUserId) || // Salesperson - own only
-                               (currentUserRole == 2 && ( // Manager - own + team
+                    .Where(o => currentUserRole == 1 ||
+                               (currentUserRole == 3 && o.assigned_to == currentUserId) ||
+                               (currentUserRole == 2 && (
                                    o.assigned_to == currentUserId ||
                                    _context.Users.Any(u => u.user_id == o.assigned_to && u.manager_id == currentUserId && u.is_active)
                                )))
@@ -111,9 +107,9 @@ namespace gasopper_crm_server.Services
                 var opportunity = hasOpportunity ? await _context.Opportunities
                     .Include(o => o.OpportunityStatus)
                     .Where(o => o.lead_id == leadId && !o.is_deleted)
-                    .Where(o => currentUserRole == 1 || // Admin sees all
-                               (currentUserRole == 3 && o.assigned_to == currentUserId) || // Salesperson - own only
-                               (currentUserRole == 2 && ( // Manager - own + team
+                    .Where(o => currentUserRole == 1 ||
+                               (currentUserRole == 3 && o.assigned_to == currentUserId) ||
+                               (currentUserRole == 2 && (
                                    o.assigned_to == currentUserId ||
                                    _context.Users.Any(u => u.user_id == o.assigned_to && u.manager_id == currentUserId && u.is_active)
                                )))
@@ -134,13 +130,13 @@ namespace gasopper_crm_server.Services
                     StatusId = lead.status_id,
                     StatusName = lead.Status?.status_name ?? "",
                     AssignedTo = lead.assigned_to,
-                    AssignedToName = $"{lead.AssignedToUser?.first_name ?? ""} {lead.AssignedToUser?.last_name ?? ""}".Trim(),
+                    AssignedToName = UserNameHelper.FormatAssignedUserName(lead.AssignedToUser),
                     CreatedBy = lead.created_by,
-                    CreatedByName = $"{lead.CreatedByUser?.first_name ?? ""} {lead.CreatedByUser?.last_name ?? ""}".Trim(),
+                    CreatedByName = UserNameHelper.FormatCreatedByUserName(lead.CreatedByUser),
                     CreatedAt = lead.created_at,
                     LastUpdated = lead.last_updated,
                     OpportunityId = opportunity?.opportunity_id,
-                    HasOpportunity = hasOpportunity, // FIXED: Dynamic calculation
+                    HasOpportunity = hasOpportunity,
                     OpportunityStatus = opportunity?.OpportunityStatus?.status_name ?? "",
                     IsDeleted = lead.is_deleted
                 };
@@ -151,28 +147,24 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // TEMPORARY DEBUG VERSION - Replace GetLeadsAsync method with this:
-
-        public async Task<List<LeadListResponseDto>> GetLeadsAsync(int currentUserId, int currentUserRole, bool includeDeleted = false)
+        public async Task<PaginatedLeadResponseDto> GetLeadsAsync(int currentUserId, int currentUserRole, int page = 1, int pageSize = 20, bool includeDeleted = false)
         {
             try
             {
-                Console.WriteLine($"[DEBUG] GetLeadsAsync - UserId: {currentUserId}, Role: {currentUserRole}");
-
                 var query = _context.Leads
                     .Include(l => l.AssignedToUser)
+                    .Include(l => l.CreatedByUser)
                     .Include(l => l.Status)
                     .AsQueryable();
 
                 if (!includeDeleted)
                     query = query.Where(l => !l.is_deleted);
 
-                // Apply role-based filtering
-                if (currentUserRole == 3) // Salesperson - own only
+                if (currentUserRole == 3)
                 {
                     query = query.Where(l => l.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2) // Manager - own + team
+                else if (currentUserRole == 2)
                 {
                     var teamIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -182,38 +174,36 @@ namespace gasopper_crm_server.Services
 
                     query = query.Where(l => teamIds.Contains(l.assigned_to));
                 }
-                // Admin sees all
+
+                var totalItems = await query.CountAsync();
+                var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
+                page = Math.Max(1, Math.Min(page, totalPages));
 
                 var leads = await query
                     .OrderByDescending(l => l.last_updated)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
                     .ToListAsync();
 
-                Console.WriteLine($"[DEBUG] Found {leads.Count} leads for user");
-
-                // SIMPLIFIED: Get ALL opportunities without role filtering first to debug
                 var allOpportunities = await _context.Opportunities
-                    .Where(o => !o.is_deleted) // FIXED: Removed lead_id null check since it's not nullable
+                    .Where(o => !o.is_deleted)
                     .Select(o => new { o.lead_id, o.assigned_to, o.opportunity_id })
                     .ToListAsync();
 
-                Console.WriteLine($"[DEBUG] Found {allOpportunities.Count} total opportunities");
-                Console.WriteLine($"[DEBUG] Opportunity lead_ids: [{string.Join(", ", allOpportunities.Select(o => o.lead_id))}]");
-
-                // Get opportunities that match current user's access
                 var accessibleOpportunityLeadIds = new List<int>();
 
-                if (currentUserRole == 1) // Admin - all opportunities
+                if (currentUserRole == 1)
                 {
-                    accessibleOpportunityLeadIds = allOpportunities.Select(o => o.lead_id).ToList(); // FIXED: Removed .Value
+                    accessibleOpportunityLeadIds = allOpportunities.Select(o => o.lead_id).ToList();
                 }
-                else if (currentUserRole == 3) // Salesperson - own only
+                else if (currentUserRole == 3)
                 {
                     accessibleOpportunityLeadIds = allOpportunities
                         .Where(o => o.assigned_to == currentUserId)
-                        .Select(o => o.lead_id) // FIXED: Removed .Value
+                        .Select(o => o.lead_id)
                         .ToList();
                 }
-                else if (currentUserRole == 2) // Manager - own + team
+                else if (currentUserRole == 2)
                 {
                     var teamIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -223,43 +213,45 @@ namespace gasopper_crm_server.Services
 
                     accessibleOpportunityLeadIds = allOpportunities
                         .Where(o => teamIds.Contains(o.assigned_to))
-                        .Select(o => o.lead_id) // FIXED: Removed .Value
+                        .Select(o => o.lead_id)
                         .ToList();
                 }
 
-                Console.WriteLine($"[DEBUG] Accessible opportunity lead_ids for role {currentUserRole}: [{string.Join(", ", accessibleOpportunityLeadIds)}]");
-                Console.WriteLine($"[DEBUG] Lead IDs: [{string.Join(", ", leads.Select(l => l.lead_id))}]");
-
-                var result = leads.Select(l =>
+                var result = leads.Select(l => new LeadListResponseDto
                 {
-                    var hasOpportunity = accessibleOpportunityLeadIds.Contains(l.lead_id);
-                    Console.WriteLine($"[DEBUG] Lead {l.lead_id} ({l.name}) - hasOpportunity: {hasOpportunity}");
-
-                    return new LeadListResponseDto
-                    {
-                        LeadId = l.lead_id,
-                        Name = l.name,
-                        Email = l.email,
-                        PhoneNumber = l.phone_number,
-                        ExpectedStations = l.expected_stations,
-                        StatusName = l.Status?.status_name ?? "",
-                        AssignedToName = $"{l.AssignedToUser?.first_name ?? ""} {l.AssignedToUser?.last_name ?? ""}".Trim(),
-                        CreatedAt = l.created_at,
-                        LastUpdated = l.last_updated,
-                        HasOpportunity = hasOpportunity,
-                        IsDeleted = l.is_deleted
-                    };
+                    LeadId = l.lead_id,
+                    Name = l.name,
+                    Email = l.email,
+                    PhoneNumber = l.phone_number,
+                    ExpectedStations = l.expected_stations,
+                    StatusName = l.Status?.status_name ?? "",
+                    AssignedToName = UserNameHelper.FormatAssignedUserName(l.AssignedToUser),
+                    CreatedByName = UserNameHelper.FormatCreatedByUserName(l.CreatedByUser),
+                    CreatedAt = l.created_at,
+                    LastUpdated = l.last_updated,
+                    HasOpportunity = accessibleOpportunityLeadIds.Contains(l.lead_id),
+                    IsDeleted = l.is_deleted
                 }).ToList();
 
-                var convertedCount = result.Count(r => r.HasOpportunity);
-                Console.WriteLine($"[DEBUG] Final result: {result.Count} leads, {convertedCount} converted");
-
-                return result;
+                return new PaginatedLeadResponseDto
+                {
+                    Data = result,
+                    Pagination = new PaginationDto
+                    {
+                        CurrentPage = page,
+                        TotalPages = totalPages,
+                        TotalItems = totalItems,
+                        PageSize = pageSize
+                    }
+                };
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Console.WriteLine($"[ERROR] GetLeadsAsync failed: {ex.Message}");
-                return new List<LeadListResponseDto>();
+                return new PaginatedLeadResponseDto
+                {
+                    Data = new List<LeadListResponseDto>(),
+                    Pagination = new PaginationDto { CurrentPage = 1, TotalPages = 0, TotalItems = 0, PageSize = pageSize }
+                };
             }
         }
 
@@ -271,7 +263,6 @@ namespace gasopper_crm_server.Services
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return null;
 
-                // Update fields
                 if (!string.IsNullOrEmpty(updateLeadDto.Name))
                     lead.name = updateLeadDto.Name;
                 if (!string.IsNullOrEmpty(updateLeadDto.PhoneNumber))
@@ -283,7 +274,6 @@ namespace gasopper_crm_server.Services
                 if (updateLeadDto.ExpectedStations.HasValue)
                     lead.expected_stations = updateLeadDto.ExpectedStations.Value;
 
-                // Handle referral information updates
                 if (updateLeadDto.ReferralName != null)
                     lead.referral_name = updateLeadDto.ReferralName;
                 if (updateLeadDto.ReferralEmail != null)
@@ -293,7 +283,6 @@ namespace gasopper_crm_server.Services
                 if (updateLeadDto.ReferralAddress != null)
                     lead.referral_address = updateLeadDto.ReferralAddress;
 
-                // Only Admin/Manager can reassign leads
                 if (updateLeadDto.AssignedTo.HasValue && (currentUserRole == 1 || currentUserRole == 2))
                     lead.assigned_to = updateLeadDto.AssignedTo.Value;
 
@@ -332,11 +321,9 @@ namespace gasopper_crm_server.Services
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return null;
 
-                // Flexible status validation - works with both schemas
                 if (updateStatusDto.StatusId < 1 || updateStatusDto.StatusId > 7)
                     return null;
 
-                // Verify the status exists in the database
                 var statusExists = await _context.LeadStatuses
                     .AnyAsync(s => s.status_id == updateStatusDto.StatusId);
 
@@ -353,8 +340,6 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // REPLACE the ConvertToOpportunityAsync method in your existing LeadService.cs
-
         public async Task<LeadResponseDto?> ConvertToOpportunityAsync(int leadId, ConvertLeadToOpportunityDto convertDto, int currentUserId, int currentUserRole)
         {
             try
@@ -366,36 +351,33 @@ namespace gasopper_crm_server.Services
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return null;
 
-                // Check if already converted
                 if (lead.Opportunity != null && !lead.Opportunity.is_deleted)
                     return null;
 
-                // UPDATED: Create opportunity with split address fields AND actual_stations
                 var opportunity = new Opportunity
                 {
                     lead_id = leadId,
                     owner_name = convertDto.OwnerName,
-                    address_line_1 = convertDto.AddressLine1, // UPDATED
-                    address_line_2 = convertDto.AddressLine2, // UPDATED
-                    city = convertDto.City, // UPDATED
-                    state = convertDto.State, // UPDATED
-                    postal_code = convertDto.PostalCode, // UPDATED
-                    country = convertDto.Country ?? "United States", // UPDATED
-                    actual_stations = convertDto.ActualStations, // ADDED: Save actual stations count
+                    address_line_1 = convertDto.AddressLine1,
+                    address_line_2 = convertDto.AddressLine2,
+                    city = convertDto.City,
+                    state = convertDto.State,
+                    postal_code = convertDto.PostalCode,
+                    country = convertDto.Country ?? "United States",
+                    actual_stations = convertDto.ActualStations,
                     assigned_to = convertDto.AssignedTo ?? lead.assigned_to,
                     created_by = currentUserId,
-                    status_id = 1 // Active
+                    status_id = 1
                 };
 
                 _context.Opportunities.Add(opportunity);
 
-                // Set lead to converted status
                 var convertedStatus = await _context.LeadStatuses
                     .Where(s => s.status_name.ToLower().Contains("converted"))
                     .Select(s => s.status_id)
                     .FirstOrDefaultAsync();
 
-                lead.status_id = convertedStatus > 0 ? convertedStatus : 2; // Default to 2 if not found
+                lead.status_id = convertedStatus > 0 ? convertedStatus : 2;
 
                 await _context.SaveChangesAsync();
                 return await GetLeadByIdAsync(leadId, currentUserId, currentUserRole);
@@ -408,32 +390,29 @@ namespace gasopper_crm_server.Services
 
         public async Task<List<LeadListResponseDto>> GetMyLeadsAsync(int currentUserId)
         {
-            return await GetLeadsAsync(currentUserId, 3, false); // Force salesperson view
+            var result = await GetLeadsAsync(currentUserId, 3, 1, 1000, false);
+            return result.Data;
         }
 
         public async Task<List<LeadListResponseDto>> GetTeamLeadsAsync(int managerId)
         {
-            return await GetLeadsAsync(managerId, 2, false); // Force manager view
+            var result = await GetLeadsAsync(managerId, 2, 1, 1000, false);
+            return result.Data;
         }
-
-
-        // REPLACE ONLY the GetLeadStatsAsync method in your LeadService.cs
 
         public async Task<LeadStatsDto> GetLeadStatsAsync(int currentUserId, int currentUserRole)
         {
             try
             {
-                // Get accessible leads with SAME role-based filtering as your existing GetLeadsAsync method
                 var leadsQuery = _context.Leads
                     .Include(l => l.Status)
                     .Where(l => !l.is_deleted);
 
-                // Apply IDENTICAL role-based filtering as your existing GetLeadsAsync method  
-                if (currentUserRole == 3) // Salesperson can only see their own leads
+                if (currentUserRole == 3)
                 {
                     leadsQuery = leadsQuery.Where(l => l.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2) // Manager can see own + team leads
+                else if (currentUserRole == 2)
                 {
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -443,26 +422,22 @@ namespace gasopper_crm_server.Services
                     teamMemberIds.Add(currentUserId);
                     leadsQuery = leadsQuery.Where(l => teamMemberIds.Contains(l.assigned_to));
                 }
-                // Admin can see all leads (no additional filtering)
 
-                // Calculate lead statistics from accessible leads
                 var totalLeads = await leadsQuery.CountAsync();
 
-                // FIXED: Count VALID converted opportunities from opportunities table with SAME role-based filtering
                 var opportunitiesQuery = _context.Opportunities
                     .Where(o => !o.is_deleted)
-                    .Where(o => o.lead_id != null) // CRITICAL: Only count opportunities with valid lead_id
-                    .Join(_context.Leads.Where(l => !l.is_deleted), // CRITICAL: Join with non-deleted leads
+                    .Where(o => o.lead_id != null)
+                    .Join(_context.Leads.Where(l => !l.is_deleted),
                           o => o.lead_id,
                           l => l.lead_id,
-                          (o, l) => o); // This ensures we only count opportunities with existing, non-deleted leads
+                          (o, l) => o);
 
-                // Apply SAME role-based filtering to opportunities
-                if (currentUserRole == 3) // Salesperson can only see their own opportunities
+                if (currentUserRole == 3)
                 {
                     opportunitiesQuery = opportunitiesQuery.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2) // Manager can see own + team opportunities
+                else if (currentUserRole == 2)
                 {
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -472,14 +447,11 @@ namespace gasopper_crm_server.Services
                     teamMemberIds.Add(currentUserId);
                     opportunitiesQuery = opportunitiesQuery.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
-                // Admin can see all opportunities (no additional filtering)
 
                 var convertedOpportunities = await opportunitiesQuery.CountAsync();
 
-                // Calculate conversion rate based on actual VALID opportunity count
                 var conversionRate = totalLeads > 0 ? Math.Round((double)convertedOpportunities / totalLeads * 100, 1) : 0.0;
 
-                // Calculate average days to convert - only for VALID conversions
                 var conversions = await (from l in leadsQuery
                                          join o in opportunitiesQuery on l.lead_id equals o.lead_id
                                          select new
@@ -492,7 +464,6 @@ namespace gasopper_crm_server.Services
                     ? Math.Round(conversions.Average(c => (c.OpportunityCreated - c.LeadCreated).TotalDays), 1)
                     : 0.0;
 
-                // Status breakdown from accessible leads
                 var statusBreakdown = await leadsQuery
                     .GroupBy(l => l.Status.status_name)
                     .Select(g => new { Status = g.Key, Count = g.Count() })
@@ -501,7 +472,7 @@ namespace gasopper_crm_server.Services
                 return new LeadStatsDto
                 {
                     TotalLeads = totalLeads,
-                    ConvertedLeads = convertedOpportunities,  // FIXED: Use VALID opportunity count from opportunities table
+                    ConvertedLeads = convertedOpportunities,
                     ConversionRate = conversionRate,
                     AverageDaysToConvert = (int)Math.Round(averageDaysToConvert),
                     StatusBreakdown = statusBreakdown
@@ -544,10 +515,9 @@ namespace gasopper_crm_server.Services
         {
             try
             {
-                if (currentUserRole == 1) return true; // Admin
-                if (currentUserRole == 3) return lead.assigned_to == currentUserId; // Salesperson own only
+                if (currentUserRole == 1) return true;
+                if (currentUserRole == 3) return lead.assigned_to == currentUserId;
 
-                // Manager - check if it's their lead or team member's lead
                 if (currentUserRole == 2)
                 {
                     if (lead.assigned_to == currentUserId) return true;
