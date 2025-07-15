@@ -2,6 +2,20 @@ using System.ComponentModel.DataAnnotations;
 
 namespace gasopper_crm_server.DTOs
 {
+    // REMOVED: Duplicate PaginationDto - Now using shared version from PaginationDtos.cs
+
+    // Use shared PaginatedResponseDto<T> instead of custom pagination response
+    public class PaginatedOpportunitiesResponseDto : PaginatedResponseDto<OpportunityListDto>
+    {
+        // Inherits Data and Pagination properties from base class
+    }
+
+    // Opportunity-specific filters extending the base
+    public class OpportunityFilters : BaseFilters
+    {
+        // Add any opportunity-specific filter properties here if needed
+    }
+
     public class CreateOpportunityDto
     {
         [Required]
@@ -43,9 +57,6 @@ namespace gasopper_crm_server.DTOs
     {
         [MaxLength(100)]
         public string? OwnerName { get; set; }
-
-        // REMOVED: OwnerAddress field - no longer supported
-        // Use split address fields instead
 
         // Split address fields
         [MaxLength(200)]
@@ -195,7 +206,7 @@ namespace gasopper_crm_server.DTOs
         public int? NumberOfEmployees { get; set; }
         public string? StationTypeName { get; set; }
         public bool IsComplete { get; set; }
-        public double CompletionPercentage { get; set; }  // ← ADD THIS LINE
+        public double CompletionPercentage { get; set; }
         public List<string> MissingFields { get; set; } = new List<string>();
         public DateTime CreatedAt { get; set; }
         public int StatusId { get; set; }

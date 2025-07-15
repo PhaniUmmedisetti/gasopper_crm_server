@@ -24,60 +24,53 @@ namespace gasopper_crm_server.Controllers
             try
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-                
-                // ADDED: Debug logging
-                Console.WriteLine($"[DEBUG] GetOpportunities called - UserId: {currentUserId}, Role: {currentUserRole}, IncludeDeleted: {includeDeleted}");
-                
                 var opportunities = await _opportunityService.GetOpportunitiesAsync(currentUserId, currentUserRole, includeDeleted);
-                
-                // ADDED: Debug logging
-                Console.WriteLine($"[DEBUG] Opportunities returned: {opportunities?.Count ?? 0}");
-                if (opportunities?.Any() == true)
-                {
-                    Console.WriteLine($"[DEBUG] First opportunity: OpportunityId={opportunities.First().OpportunityId}, LeadName={opportunities.First().LeadName}");
-                }
-
                 return Ok(new { data = opportunities, count = opportunities.Count });
             }
             catch (Exception ex)
             {
-                // ADDED: Debug logging
-                Console.WriteLine($"[ERROR] GetOpportunities failed: {ex.Message}");
-                Console.WriteLine($"[ERROR] Stack trace: {ex.StackTrace}");
-                
                 return StatusCode(500, new { message = "Error fetching opportunities", error = ex.Message });
             }
         }
 
-        [HttpGet("{id}")]
+        [HttpGet("paginated")]
+        public async Task<IActionResult> GetOpportunitiesPaginated(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20,
+            [FromQuery] bool includeDeleted = false)
+        {
+            try
+            {
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+                var result = await _opportunityService.GetOpportunitiesPaginatedAsync(currentUserId, currentUserRole, page, Math.Min(pageSize, 100), includeDeleted);
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error fetching paginated opportunities", error = ex.Message });
+            }
+        }
+
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetOpportunity(int id)
         {
             try
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-                
-                // ADDED: Debug logging
-                Console.WriteLine($"[DEBUG] GetOpportunity called - OpportunityId: {id}, UserId: {currentUserId}, Role: {currentUserRole}");
-                
                 var opportunity = await _opportunityService.GetOpportunityByIdAsync(id, currentUserId, currentUserRole);
 
                 if (opportunity == null)
-                {
-                    Console.WriteLine($"[DEBUG] Opportunity {id} not found or access denied");
                     return NotFound(new { message = "Opportunity not found or access denied" });
-                }
 
-                Console.WriteLine($"[DEBUG] Opportunity found: {opportunity.OpportunityId} - {opportunity.LeadName}");
                 return Ok(opportunity);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] GetOpportunity failed: {ex.Message}");
                 return StatusCode(500, new { message = "Error fetching opportunity", error = ex.Message });
             }
         }
 
-        [HttpPut("{id}")]
+        [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateOpportunity(int id, [FromBody] UpdateOpportunityDto updateDto)
         {
             if (!ModelState.IsValid)
@@ -92,7 +85,7 @@ namespace gasopper_crm_server.Controllers
             return Ok(opportunity);
         }
 
-        [HttpPut("{id}/status")]
+        [HttpPut("{id:int}/status")]
         public async Task<IActionResult> UpdateOpportunityStatus(int id, [FromBody] UpdateOpportunityStatusDto statusDto)
         {
             if (!ModelState.IsValid)
@@ -107,7 +100,7 @@ namespace gasopper_crm_server.Controllers
             return Ok(opportunity);
         }
 
-        [HttpPut("{id}/assign")]
+        [HttpPut("{id:int}/assign")]
         [Authorize(Roles = "Admin,Manager")]
         public async Task<IActionResult> AssignOpportunity(int id, [FromBody] AssignOpportunityDto assignDto)
         {
@@ -133,19 +126,29 @@ namespace gasopper_crm_server.Controllers
             try
             {
                 var (currentUserId, _) = GetCurrentUserInfo();
-                
-                Console.WriteLine($"[DEBUG] GetMyOpportunities called - UserId: {currentUserId}");
-                
                 var opportunities = await _opportunityService.GetMyOpportunitiesAsync(currentUserId);
-                
-                Console.WriteLine($"[DEBUG] My opportunities returned: {opportunities?.Count ?? 0}");
-                
                 return Ok(new { data = opportunities, count = opportunities.Count });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] GetMyOpportunities failed: {ex.Message}");
                 return StatusCode(500, new { message = "Error fetching opportunities", error = ex.Message });
+            }
+        }
+
+        [HttpGet("my-opportunities/paginated")]
+        public async Task<IActionResult> GetMyOpportunitiesPaginated(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var (currentUserId, _) = GetCurrentUserInfo();
+                var result = await _opportunityService.GetMyOpportunitiesPaginatedAsync(currentUserId, page, Math.Min(pageSize, 100));
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error fetching my paginated opportunities", error = ex.Message });
             }
         }
 
@@ -156,19 +159,30 @@ namespace gasopper_crm_server.Controllers
             try
             {
                 var (currentUserId, _) = GetCurrentUserInfo();
-                
-                Console.WriteLine($"[DEBUG] GetTeamOpportunities called - ManagerId: {currentUserId}");
-                
                 var opportunities = await _opportunityService.GetTeamOpportunitiesAsync(currentUserId);
-                
-                Console.WriteLine($"[DEBUG] Team opportunities returned: {opportunities?.Count ?? 0}");
-                
                 return Ok(new { data = opportunities, count = opportunities.Count });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] GetTeamOpportunities failed: {ex.Message}");
                 return StatusCode(500, new { message = "Error fetching team opportunities", error = ex.Message });
+            }
+        }
+
+        [HttpGet("team-opportunities/paginated")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> GetTeamOpportunitiesPaginated(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 20)
+        {
+            try
+            {
+                var (currentUserId, _) = GetCurrentUserInfo();
+                var result = await _opportunityService.GetTeamOpportunitiesPaginatedAsync(currentUserId, page, Math.Min(pageSize, 100));
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error fetching team paginated opportunities", error = ex.Message });
             }
         }
 
@@ -178,9 +192,6 @@ namespace gasopper_crm_server.Controllers
             try
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-                
-                Console.WriteLine($"[DEBUG] GetOpportunityStats called - UserId: {currentUserId}, Role: {currentUserRole}");
-                
                 var stats = await _opportunityService.GetOpportunityStatsAsync(currentUserId, currentUserRole);
 
                 var response = new
@@ -195,20 +206,15 @@ namespace gasopper_crm_server.Controllers
                     averageStationsPerOpportunity = stats.AverageStationsPerOpportunity,
                     averageDaysToComplete = stats.AverageDaysToComplete,
                     statusBreakdown = stats.StatusBreakdown,
-
-                    // Legacy support
                     total = stats.TotalOpportunities,
                     active = stats.ActiveOpportunities,
                     complete = stats.CompleteOpportunities
                 };
 
-                Console.WriteLine($"[DEBUG] Stats: Total={stats.TotalOpportunities}, Active={stats.ActiveOpportunities}, Complete={stats.CompleteOpportunities}");
-                
                 return Ok(response);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] GetOpportunityStats failed: {ex.Message}");
                 return StatusCode(500, new { message = "Error fetching opportunity statistics", error = ex.Message });
             }
         }

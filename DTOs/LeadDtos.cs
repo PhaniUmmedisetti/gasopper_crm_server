@@ -177,17 +177,16 @@ namespace gasopper_crm_server.DTOs
         public Dictionary<string, int> StatusBreakdown { get; set; } = new Dictionary<string, int>();
     }
 
-    public class PaginationDto
+    // REMOVED: Duplicate PaginationDto - Now using shared version from PaginationDtos.cs
+    // Use shared PaginatedResponseDto<T> instead of custom pagination response
+    public class PaginatedLeadResponseDto : PaginatedResponseDto<LeadListResponseDto>
     {
-        public int CurrentPage { get; set; }
-        public int TotalPages { get; set; }
-        public int TotalItems { get; set; }
-        public int PageSize { get; set; }
+        // Inherits Data and Pagination properties from base class
     }
 
-    public class PaginatedLeadResponseDto
+    // Lead-specific filters extending the base
+    public class LeadFilters : BaseFilters
     {
-        public List<LeadListResponseDto> Data { get; set; } = new List<LeadListResponseDto>();
-        public PaginationDto Pagination { get; set; } = new PaginationDto();
+        // Add any lead-specific filter properties here if needed
     }
 }
