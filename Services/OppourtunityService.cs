@@ -18,6 +18,9 @@ namespace gasopper_crm_server.Services
         Task<List<OpportunityStatusDto>> GetOpportunityStatusesAsync();
         Task<bool> UpdateOpportunityStatusBasedOnStationsAsync(int opportunityId);
 
+        Task<bool> UpdateOpportunityLastUpdatedAsync(int opportunityId);
+
+
 
         // UPDATED: Enhanced pagination methods with completion status filtering
         Task<PaginatedOpportunitiesResponseDto> GetOpportunitiesPaginatedAsync(int currentUserId, int currentUserRole, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false, bool includeDeleted = false);
@@ -76,6 +79,30 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        public async Task<bool> UpdateOpportunityLastUpdatedAsync(int opportunityId)
+        {
+            try
+            {
+                var opportunity = await _context.Opportunities
+                    .FirstOrDefaultAsync(o => o.opportunity_id == opportunityId && !o.is_deleted);
+
+                if (opportunity == null)
+                    return false;
+
+                // Update the last_updated timestamp to current time
+                opportunity.last_updated = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                Console.WriteLine($"[DEBUG] Opportunity {opportunityId} last_updated timestamp updated to {opportunity.last_updated}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] UpdateOpportunityLastUpdatedAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
         public async Task<List<OpportunityListDto>> GetOpportunitiesAsync(int currentUserId, int currentUserRole, bool includeDeleted = false)
         {
             try
@@ -122,7 +149,7 @@ namespace gasopper_crm_server.Services
 
         // NEW: Paginated methods
         // UPDATED: Enhanced pagination methods with completion status filtering// FIXED: Enhanced pagination methods with correct completion status filtering
-       // FIXED: Enhanced pagination methods with correct completion status filtering
+        // FIXED: Enhanced pagination methods with correct completion status filtering
         public async Task<PaginatedOpportunitiesResponseDto> GetOpportunitiesPaginatedAsync(int currentUserId, int currentUserRole, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false, bool includeDeleted = false)
         {
             try
@@ -182,7 +209,7 @@ namespace gasopper_crm_server.Services
                     opportunities = opportunities.Where(opp =>
                     {
                         var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
-                        
+
                         if (completionStatus.Value) // Complete: has stations AND all are signed off
                         {
                             return stations.Any() && stations.All(gs => gs.is_signed_off);
@@ -254,7 +281,7 @@ namespace gasopper_crm_server.Services
                     opportunities = opportunities.Where(opp =>
                     {
                         var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
-                        
+
                         if (completionStatus.Value) // Complete
                         {
                             return stations.Any() && stations.All(gs => gs.is_signed_off);
@@ -304,7 +331,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
- public async Task<PaginatedOpportunitiesResponseDto> GetTeamOpportunitiesPaginatedAsync(int managerId, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false)
+        public async Task<PaginatedOpportunitiesResponseDto> GetTeamOpportunitiesPaginatedAsync(int managerId, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false)
         {
             try
             {
@@ -339,7 +366,7 @@ namespace gasopper_crm_server.Services
                     opportunities = opportunities.Where(opp =>
                     {
                         var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
-                        
+
                         if (completionStatus.Value) // Complete
                         {
                             return stations.Any() && stations.All(gs => gs.is_signed_off);

@@ -223,6 +223,7 @@ namespace gasopper_crm_server.Services
                     Name = l.name,
                     Email = l.email,
                     PhoneNumber = l.phone_number,
+                    Address = l.address,
                     ExpectedStations = l.expected_stations,
                     StatusName = l.Status?.status_name ?? "",
                     AssignedToName = UserNameHelper.FormatAssignedUserName(l.AssignedToUser),

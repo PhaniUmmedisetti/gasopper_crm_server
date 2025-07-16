@@ -27,19 +27,23 @@ namespace gasopper_crm_server.Services
         Task<bool> CanUserSignOffStationAsync(int stationId, int currentUserId, int currentUserRole);
 
         // FIXED - add the filter parameters to match your implementation
-Task<PaginatedGasStationResponseDto> GetGasStationsPaginatedAsync(int currentUserId, int currentUserRole, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
-Task<PaginatedGasStationResponseDto> GetMyGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
-Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
+        Task<PaginatedGasStationResponseDto> GetGasStationsPaginatedAsync(int currentUserId, int currentUserRole, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
+        Task<PaginatedGasStationResponseDto> GetMyGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
+        Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
     }
 
     public class GasStationService : IGasStationService
     {
         private readonly GasopperDbContext _context;
 
+
+
         public GasStationService(GasopperDbContext context)
         {
             _context = context;
         }
+
+
 
         // NEW: Get paginated gas stations with role-based filtering
         public async Task<PaginatedGasStationResponseDto> GetGasStationsPaginatedAsync(int currentUserId, int currentUserRole, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null)
@@ -69,7 +73,7 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
                 if (!string.IsNullOrWhiteSpace(search))
                 {
                     var searchLower = search.ToLower();
-                    query = query.Where(gs => 
+                    query = query.Where(gs =>
                         gs.station_name.ToLower().Contains(searchLower) ||
                         gs.station_code.ToLower().Contains(searchLower));
                     Console.WriteLine($"[DEBUG] Applied search filter: '{search}'");
@@ -114,8 +118,36 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
             }
         }
 
+        // Add this private method to your GasStationService.cs
+        private async Task<bool> UpdateOpportunityTimestampAsync(int opportunityId)
+        {
+            try
+            {
+                var opportunity = await _context.Opportunities
+                    .FirstOrDefaultAsync(o => o.opportunity_id == opportunityId && !o.is_deleted);
+
+                if (opportunity == null)
+                {
+                    Console.WriteLine($"[ERROR] Opportunity {opportunityId} not found for timestamp update");
+                    return false;
+                }
+
+                // Update the last_updated timestamp to current time
+                opportunity.last_updated = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+
+                Console.WriteLine($"[DEBUG] Opportunity {opportunityId} last_updated timestamp updated to {opportunity.last_updated}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] UpdateOpportunityTimestampAsync failed: {ex.Message}");
+                return false;
+            }
+        }
+
         // NEW: Get paginated user's own gas stations
-       public async Task<PaginatedGasStationResponseDto> GetMyGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null)
+        public async Task<PaginatedGasStationResponseDto> GetMyGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null)
         {
             try
             {
@@ -139,7 +171,7 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
                 if (!string.IsNullOrWhiteSpace(search))
                 {
                     var searchLower = search.ToLower();
-                    query = query.Where(gs => 
+                    query = query.Where(gs =>
                         gs.station_name.ToLower().Contains(searchLower) ||
                         gs.station_code.ToLower().Contains(searchLower));
                     Console.WriteLine($"[DEBUG] Applied search filter: '{search}'");
@@ -217,7 +249,7 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
                 if (!string.IsNullOrWhiteSpace(search))
                 {
                     var searchLower = search.ToLower();
-                    query = query.Where(gs => 
+                    query = query.Where(gs =>
                         gs.station_name.ToLower().Contains(searchLower) ||
                         gs.station_code.ToLower().Contains(searchLower));
                     Console.WriteLine($"[DEBUG] Applied search filter: '{search}'");
@@ -312,6 +344,9 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
                 Console.WriteLine($"[DEBUG] Created station {gasStation.station_id} with code {stationCode}");
 
                 await UpdateOpportunityStatusFromStationsAsync(opportunityId, currentUserId, currentUserRole);
+
+                await UpdateOpportunityTimestampAsync(opportunityId);
+
 
                 return await GetGasStationByIdAsync(gasStation.station_id, currentUserId, currentUserRole);
             }
@@ -471,6 +506,9 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
 
                 await UpdateOpportunityStatusFromStationsAsync(gasStation.opportunity_id, currentUserId, currentUserRole);
 
+                await UpdateOpportunityTimestampAsync(gasStation.opportunity_id); // ADD THIS
+
+
                 return await GetGasStationByIdAsync(id, currentUserId, currentUserRole);
             }
             catch (Exception ex)
@@ -513,6 +551,9 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
                 Console.WriteLine($"[DEBUG] Station {id} soft deleted successfully");
 
                 await UpdateOpportunityStatusFromStationsAsync(gasStation.opportunity_id, currentUserId, currentUserRole);
+
+                await UpdateOpportunityTimestampAsync(gasStation.opportunity_id); // ADD THIS
+
 
                 return true;
             }
@@ -565,6 +606,9 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
                 Console.WriteLine($"[DEBUG] Station {stationId} signed off successfully by user {currentUserId} (role: {currentUserRole})");
 
                 await UpdateOpportunityStatusFromStationsAsync(gasStation.opportunity_id, currentUserId, currentUserRole);
+
+                await UpdateOpportunityTimestampAsync(gasStation.opportunity_id); // ADD THIS
+
 
                 return true;
             }
@@ -934,7 +978,7 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
             var canEdit = await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole);
             var completionPercentage = CalculateStationCompletionPercentage(gasStation);
             var canSignOff = canEdit && !gasStation.is_signed_off && completionPercentage >= 100;
-            
+
             return new GasStationResponseDto
             {
                 StationId = gasStation.station_id,
@@ -976,7 +1020,7 @@ Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int curren
             var canEdit = await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole);
             var completionPercentage = CalculateStationCompletionPercentage(gasStation);
             var canSignOff = canEdit && !gasStation.is_signed_off && completionPercentage >= 100;
-            
+
             return new GasStationListResponseDto
             {
                 StationId = gasStation.station_id,

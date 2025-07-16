@@ -89,6 +89,7 @@ namespace gasopper_crm_server.DTOs
         public int LeadId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
+
         public string Email { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
         public int ExpectedStations { get; set; }
@@ -122,6 +123,7 @@ namespace gasopper_crm_server.DTOs
         public string Name { get; set; } = string.Empty;
         public string Email { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
+        public string Address { get; set; } = string.Empty;  
         public int ExpectedStations { get; set; }
         public string? StatusName { get; set; }
         public string AssignedToName { get; set; } = string.Empty;
