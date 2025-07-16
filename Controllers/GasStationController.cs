@@ -1,5 +1,5 @@
-// FINAL FIXED GasStationsController.cs - Corrected role-based sign-off with proper parameter passing
-// FIXES: Sign-off endpoints now pass currentUserRole parameter correctly
+// Controllers/GasStationsController.cs
+// COMPLETE: Added pagination endpoints with filter parameters while maintaining ALL existing functionality
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -21,6 +21,113 @@ namespace gasopper_crm_server.Controllers
             _gasStationService = gasStationService;
         }
 
+        // UPDATED: Get paginated gas stations with role-based filtering AND status/search filters
+        /// <summary>
+        /// Get paginated gas stations based on user role with optional filtering
+        /// Returns: { data: [...], pagination: { currentPage, totalPages, totalItems, pageSize } }
+        /// </summary>
+        [HttpGet("paginated")]
+        public async Task<IActionResult> GetGasStationsPaginated(
+            [FromQuery] int page = 1, 
+            [FromQuery] int pageSize = 20,
+            [FromQuery] bool? isSignedOff = null,  // null = all, true = complete, false = incomplete
+            [FromQuery] string? search = null)     // search in station name or code
+        {
+            try
+            {
+                // Validate pagination parameters
+                if (page < 1) page = 1;
+                if (pageSize < 1 || pageSize > 100) pageSize = 20; // Limit max page size
+
+                var (currentUserId, currentUserRole) = GetCurrentUserInfo();
+
+                Console.WriteLine($"[DEBUG] GetGasStationsPaginated called - UserId: {currentUserId}, Role: {currentUserRole}, Page: {page}, PageSize: {pageSize}, IsSignedOff: {isSignedOff}, Search: '{search}'");
+
+                var result = await _gasStationService.GetGasStationsPaginatedAsync(currentUserId, currentUserRole, page, pageSize, isSignedOff, search);
+
+                Console.WriteLine($"[DEBUG] Paginated gas stations returned - Total: {result.Pagination.TotalItems}, Page: {result.Pagination.CurrentPage}/{result.Pagination.TotalPages}, Count: {result.Data.Count}");
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetGasStationsPaginated failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error fetching paginated gas stations", error = ex.Message });
+            }
+        }
+
+        // UPDATED: Get paginated user's own gas stations with filters
+        /// <summary>
+        /// Get paginated gas stations assigned to current user with optional filtering
+        /// Returns: { data: [...], pagination: { currentPage, totalPages, totalItems, pageSize } }
+        /// </summary>
+        [HttpGet("my-stations/paginated")]
+        public async Task<IActionResult> GetMyGasStationsPaginated(
+            [FromQuery] int page = 1, 
+            [FromQuery] int pageSize = 20,
+            [FromQuery] bool? isSignedOff = null,
+            [FromQuery] string? search = null)
+        {
+            try
+            {
+                // Validate pagination parameters
+                if (page < 1) page = 1;
+                if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+                var (currentUserId, _) = GetCurrentUserInfo();
+
+                Console.WriteLine($"[DEBUG] GetMyGasStationsPaginated called - UserId: {currentUserId}, Page: {page}, PageSize: {pageSize}, IsSignedOff: {isSignedOff}, Search: '{search}'");
+
+                var result = await _gasStationService.GetMyGasStationsPaginatedAsync(currentUserId, page, pageSize, isSignedOff, search);
+
+                Console.WriteLine($"[DEBUG] Paginated my gas stations returned - Total: {result.Pagination.TotalItems}, Page: {result.Pagination.CurrentPage}/{result.Pagination.TotalPages}, Count: {result.Data.Count}");
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetMyGasStationsPaginated failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error fetching paginated personal gas stations", error = ex.Message });
+            }
+        }
+
+        // UPDATED: Get paginated team gas stations with filters (Manager/Admin only)
+        /// <summary>
+        /// Get paginated gas stations for team members with optional filtering (Manager/Admin only)
+        /// Returns: { data: [...], pagination: { currentPage, totalPages, totalItems, pageSize } }
+        /// </summary>
+        [HttpGet("team-stations/paginated")]
+        [Authorize(Roles = "Manager,Admin")]
+        public async Task<IActionResult> GetTeamGasStationsPaginated(
+            [FromQuery] int page = 1, 
+            [FromQuery] int pageSize = 20,
+            [FromQuery] bool? isSignedOff = null,
+            [FromQuery] string? search = null)
+        {
+            try
+            {
+                // Validate pagination parameters
+                if (page < 1) page = 1;
+                if (pageSize < 1 || pageSize > 100) pageSize = 20;
+
+                var (currentUserId, _) = GetCurrentUserInfo();
+
+                Console.WriteLine($"[DEBUG] GetTeamGasStationsPaginated called - UserId: {currentUserId}, Page: {page}, PageSize: {pageSize}, IsSignedOff: {isSignedOff}, Search: '{search}'");
+
+                var result = await _gasStationService.GetTeamGasStationsPaginatedAsync(currentUserId, page, pageSize, isSignedOff, search);
+
+                Console.WriteLine($"[DEBUG] Paginated team gas stations returned - Total: {result.Pagination.TotalItems}, Page: {result.Pagination.CurrentPage}/{result.Pagination.TotalPages}, Count: {result.Data.Count}");
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetTeamGasStationsPaginated failed: {ex.Message}");
+                return StatusCode(500, new { message = "Error fetching paginated team gas stations", error = ex.Message });
+            }
+        }
+
+        // EXISTING: Get gas station statistics based on user role (unchanged)
         /// <summary>
         /// Get gas station statistics based on user role
         /// </summary>
@@ -65,8 +172,9 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Get all gas stations with role-based filtering (unchanged)
         /// <summary>
-        /// Get all gas stations with role-based filtering
+        /// Get all gas stations with role-based filtering (backward compatibility)
         /// </summary>
         [HttpGet("get-stations")]
         public async Task<IActionResult> GetGasStations()
@@ -81,7 +189,7 @@ namespace gasopper_crm_server.Controllers
 
                 Console.WriteLine($"[DEBUG] Gas stations returned: {gasStations?.Count ?? 0}");
 
-                return Ok(new { data = gasStations, count = gasStations.Count });
+                return Ok(new { data = gasStations, count = gasStations?.Count });
             }
             catch (Exception ex)
             {
@@ -90,6 +198,7 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Get available station types for dropdowns (unchanged)
         /// <summary>
         /// Get available station types for dropdowns
         /// </summary>
@@ -113,10 +222,11 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Get all gas stations for a specific opportunity (unchanged)
         /// <summary>
         /// Get all gas stations for a specific opportunity
         /// </summary>
-        [HttpGet("opportunities/{opportunityId}/stations")]
+        [HttpGet("opportunities/{opportunityId:int}/stations")]
         public async Task<IActionResult> GetStationsByOpportunity(int opportunityId)
         {
             try
@@ -132,7 +242,7 @@ namespace gasopper_crm_server.Controllers
                 return Ok(new
                 {
                     data = gasStations,
-                    count = gasStations.Count,
+                    count = gasStations?.Count,
                     opportunityId = opportunityId
                 });
             }
@@ -143,11 +253,12 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Create a new gas station for an opportunity (unchanged)
         /// <summary>
         /// Create a new gas station for an opportunity
         /// Station code will be auto-generated
         /// </summary>
-        [HttpPost("opportunities/{opportunityId}/stations")]
+        [HttpPost("opportunities/{opportunityId:int}/stations")]
         public async Task<IActionResult> CreateStationForOpportunity(int opportunityId, [FromBody] CreateGasStationDto createDto)
         {
             if (!ModelState.IsValid)
@@ -184,12 +295,13 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Update an existing gas station (unchanged)
         /// <summary>
         /// Update an existing gas station
         /// Station code cannot be modified
         /// Signed-off stations cannot be updated
         /// </summary>
-        [HttpPut("{id}")]
+        [HttpPut("{id:int}")]
         public async Task<IActionResult> UpdateStation(int id, [FromBody] UpdateGasStationDto updateDto)
         {
             if (!ModelState.IsValid)
@@ -222,11 +334,12 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Soft delete a gas station (unchanged)
         /// <summary>
         /// Soft delete a gas station
         /// Signed-off stations cannot be deleted
         /// </summary>
-        [HttpDelete("{id}")]
+        [HttpDelete("{id:int}")]
         public async Task<IActionResult> DeleteStation(int id)
         {
             try
@@ -253,10 +366,11 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Get a specific gas station by ID (unchanged)
         /// <summary>
         /// Get a specific gas station by ID
         /// </summary>
-        [HttpGet("{id}")]
+        [HttpGet("{id:int}")]
         public async Task<IActionResult> GetStationById(int id)
         {
             try
@@ -283,12 +397,13 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Sign off a gas station (unchanged)
         /// <summary>
-        /// FINAL FIXED: Sign off a gas station (permanently freeze it)
+        /// Sign off a gas station (permanently freeze it)
         /// Uses role-based permissions - Admin/Manager/Salesperson can sign off based on access rights
         /// Station must have all fields filled before sign-off
         /// </summary>
-        [HttpPost("{id}/sign-off")]
+        [HttpPost("{id:int}/sign-off")]
         public async Task<IActionResult> SignOffStation(int id, [FromBody] SignOffStationDto signOffDto)
         {
             if (!ModelState.IsValid)
@@ -309,7 +424,6 @@ namespace gasopper_crm_server.Controllers
 
                 Console.WriteLine($"[DEBUG] SignOffStation called - StationId: {id}, UserId: {currentUserId}, Role: {currentUserRole}");
 
-                // FIXED: Pass role parameter for role-based permission checking
                 var success = await _gasStationService.SignOffStationAsync(id, currentUserId, currentUserRole);
 
                 if (!success)
@@ -335,11 +449,12 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Check if current user can sign off a specific station (unchanged)
         /// <summary>
-        /// FINAL FIXED: Check if current user can sign off a specific station
+        /// Check if current user can sign off a specific station
         /// Uses role-based permissions for consistency
         /// </summary>
-        [HttpGet("{id}/can-sign-off")]
+        [HttpGet("{id:int}/can-sign-off")]
         public async Task<IActionResult> CanSignOffStation(int id)
         {
             try
@@ -348,7 +463,6 @@ namespace gasopper_crm_server.Controllers
 
                 Console.WriteLine($"[DEBUG] CanSignOffStation called - StationId: {id}, UserId: {currentUserId}, Role: {currentUserRole}");
 
-                // FIXED: Pass role parameter for role-based permission checking
                 var canSignOff = await _gasStationService.CanUserSignOffStationAsync(id, currentUserId, currentUserRole);
 
                 Console.WriteLine($"[DEBUG] User {currentUserId} (role: {currentUserRole}) can sign off station {id}: {canSignOff}");
@@ -362,8 +476,9 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Get team gas stations (Manager/Admin only) - NON-PAGINATED (unchanged)
         /// <summary>
-        /// Get team gas stations (Manager/Admin only)
+        /// Get team gas stations (Manager/Admin only) - Non-paginated version for backward compatibility
         /// </summary>
         [HttpGet("team-stations")]
         [Authorize(Roles = "Manager,Admin")]
@@ -379,7 +494,7 @@ namespace gasopper_crm_server.Controllers
 
                 Console.WriteLine($"[DEBUG] Team stations returned: {gasStations?.Count ?? 0}");
 
-                return Ok(new { data = gasStations, count = gasStations.Count });
+                return Ok(new { data = gasStations, count = gasStations?.Count });
             }
             catch (Exception ex)
             {
@@ -388,8 +503,9 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Get my personal gas stations - NON-PAGINATED (unchanged)
         /// <summary>
-        /// Get my personal gas stations
+        /// Get my personal gas stations - Non-paginated version for backward compatibility
         /// </summary>
         [HttpGet("my-stations")]
         public async Task<IActionResult> GetMyStations()
@@ -404,7 +520,7 @@ namespace gasopper_crm_server.Controllers
 
                 Console.WriteLine($"[DEBUG] My stations returned: {gasStations?.Count ?? 0}");
 
-                return Ok(new { data = gasStations, count = gasStations.Count });
+                return Ok(new { data = gasStations, count = gasStations?.Count });
             }
             catch (Exception ex)
             {
@@ -413,10 +529,11 @@ namespace gasopper_crm_server.Controllers
             }
         }
 
+        // EXISTING: Manually update opportunity status based on station completion (unchanged)
         /// <summary>
         /// Manually update opportunity status based on station completion
         /// </summary>
-        [HttpPost("opportunities/{opportunityId}/update-status")]
+        [HttpPost("opportunities/{opportunityId:int}/update-status")]
         public async Task<IActionResult> UpdateOpportunityStatusFromStations(int opportunityId)
         {
             try

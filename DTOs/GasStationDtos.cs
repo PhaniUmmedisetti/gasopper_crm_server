@@ -1,14 +1,17 @@
+// DTOs/GasStationDtos.cs
+// UPDATED: Added pagination DTOs for Gas Stations
+
 using System.ComponentModel.DataAnnotations;
 
 namespace gasopper_crm_server.DTOs
 {
+    // EXISTING DTOs (unchanged)
     public class CreateGasStationDto
     {
         [Required]
         [MaxLength(100)]
         public string StationName { get; set; } = string.Empty;
 
-        // UPDATED: Split address fields instead of single Address
         [Required]
         [MaxLength(200)]
         public string AddressLine1 { get; set; } = string.Empty;
@@ -31,7 +34,6 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string Country { get; set; } = "United States";
 
-        // POC information (all optional)
         [MaxLength(100)]
         public string? PocName { get; set; }
 
@@ -42,7 +44,6 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(320)]
         public string? PocEmail { get; set; }
 
-        // Station details (all optional)
         [Range(1, int.MaxValue, ErrorMessage = "Number of pumps must be greater than 0")]
         public int? NumberOfPumps { get; set; }
 
@@ -53,8 +54,6 @@ namespace gasopper_crm_server.DTOs
         public int? StationTypeId { get; set; }
 
         public string? Notes { get; set; }
-        
-        // NOTE: StationCode is NOT included here - it's auto-generated from PostalCode
     }
 
     public class UpdateGasStationDto
@@ -62,10 +61,6 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(100)]
         public string? StationName { get; set; }
 
-        // REMOVED: Address fields cannot be updated to prevent station code conflicts
-        // Address fields are immutable after creation since station code depends on postal code
-
-        // POC information (all optional)
         [MaxLength(100)]
         public string? PocName { get; set; }
 
@@ -76,7 +71,6 @@ namespace gasopper_crm_server.DTOs
         [MaxLength(320)]
         public string? PocEmail { get; set; }
 
-        // Station details (all optional)
         [Range(1, int.MaxValue, ErrorMessage = "Number of pumps must be greater than 0")]
         public int? NumberOfPumps { get; set; }
 
@@ -87,18 +81,31 @@ namespace gasopper_crm_server.DTOs
         public int? StationTypeId { get; set; }
 
         public string? Notes { get; set; }
-        
-        // NOTE: StationCode is NOT included here - it's immutable after creation
-        // NOTE: Address fields are NOT included here - they're immutable to prevent station code conflicts
     }
 
+    // NEW: Pagination DTO for Gas Stations
+    public class GasStationPaginationDto
+    {
+        public int CurrentPage { get; set; }
+        public int TotalPages { get; set; }
+        public int TotalItems { get; set; }
+        public int PageSize { get; set; }
+    }
+
+    // NEW: Paginated Gas Station Response DTO
+    public class PaginatedGasStationResponseDto
+    {
+        public List<GasStationListResponseDto> Data { get; set; } = new List<GasStationListResponseDto>();
+        public GasStationPaginationDto Pagination { get; set; } = new GasStationPaginationDto();
+    }
+
+    // EXISTING: Gas Station Response DTOs (unchanged)
     public class GasStationResponseDto
     {
         public int StationId { get; set; }
         public int OpportunityId { get; set; }
         public string StationName { get; set; } = string.Empty;
         
-        // UPDATED: Split address fields
         public string AddressLine1 { get; set; } = string.Empty;
         public string? AddressLine2 { get; set; }
         public string City { get; set; } = string.Empty;
@@ -106,40 +113,31 @@ namespace gasopper_crm_server.DTOs
         public string PostalCode { get; set; } = string.Empty;
         public string Country { get; set; } = string.Empty;
         
-        // Computed full address for backward compatibility
         public string Address { get; set; } = string.Empty;
-        
-        // AUTO-GENERATED STATION CODE
         public string StationCode { get; set; } = string.Empty;
 
-        // POC information
         public string? PocName { get; set; }
         public string? PocPhone { get; set; }
         public string? PocEmail { get; set; }
 
-        // Station details
         public int? NumberOfPumps { get; set; }
         public int? NumberOfEmployees { get; set; }
         public int? StationTypeId { get; set; }
         public string? Notes { get; set; }
 
-        // Completion tracking
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
 
-        // NEW: Sign-off information
         public bool IsSignedOff { get; set; }
         public DateTime? SignedOffAt { get; set; }
-        public bool CanSignOff { get; set; }  // Helper field for frontend
-        public bool CanEdit { get; set; }     // Helper field for frontend
+        public bool CanSignOff { get; set; }
+        public bool CanEdit { get; set; }
 
-        // Audit information
         public int CreatedBy { get; set; }
         public string CreatedByName { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
         public DateTime LastUpdated { get; set; }
 
-        // Opportunity information
         public string OpportunityLeadName { get; set; } = string.Empty;
         public string OpportunityOwnerName { get; set; } = string.Empty;
     }
@@ -150,7 +148,6 @@ namespace gasopper_crm_server.DTOs
         public int OpportunityId { get; set; }
         public string StationName { get; set; } = string.Empty;
         
-        // UPDATED: Split address fields
         public string AddressLine1 { get; set; } = string.Empty;
         public string? AddressLine2 { get; set; }
         public string City { get; set; } = string.Empty;
@@ -158,18 +155,13 @@ namespace gasopper_crm_server.DTOs
         public string PostalCode { get; set; } = string.Empty;
         public string Country { get; set; } = string.Empty;
         
-        // Computed full address for backward compatibility
         public string Address { get; set; } = string.Empty;
-        
-        // AUTO-GENERATED STATION CODE
         public string StationCode { get; set; } = string.Empty;
         
-        // POC information
         public string? PocName { get; set; }
         public string? PocPhone { get; set; }
         public string? PocEmail { get; set; }
         
-        // Station details
         public int? NumberOfPumps { get; set; }
         public int? NumberOfEmployees { get; set; }
         public int? StationTypeId { get; set; }
@@ -177,39 +169,34 @@ namespace gasopper_crm_server.DTOs
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
         
-        // NEW: Sign-off information
         public bool IsSignedOff { get; set; }
         public DateTime? SignedOffAt { get; set; }
-        public bool CanSignOff { get; set; }  // Helper field for frontend
-        public bool CanEdit { get; set; }     // Helper field for frontend
+        public bool CanSignOff { get; set; }
+        public bool CanEdit { get; set; }
         
         public string CreatedByName { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
         public string OpportunityLeadName { get; set; } = string.Empty;
     }
 
+    // EXISTING: Other DTOs (unchanged)
     public class GasStationSummaryDto
     {
         public int StationId { get; set; }
         public string StationName { get; set; } = string.Empty;
         
-        // UPDATED: Split address fields
         public string AddressLine1 { get; set; } = string.Empty;
         public string City { get; set; } = string.Empty;
         public string State { get; set; } = string.Empty;
         public string PostalCode { get; set; } = string.Empty;
         
-        // Computed full address for backward compatibility
         public string Address { get; set; } = string.Empty;
-        
-        // AUTO-GENERATED STATION CODE
         public string StationCode { get; set; } = string.Empty;
         
         public int? StationTypeId { get; set; }
         public bool IsComplete { get; set; }
         public double CompletionPercentage { get; set; }
         
-        // NEW: Sign-off information
         public bool IsSignedOff { get; set; }
         public DateTime? SignedOffAt { get; set; }
     }
@@ -228,14 +215,13 @@ namespace gasopper_crm_server.DTOs
         public double CompletionRate { get; set; }
         public int AverageStationsPerOpportunity { get; set; }
         
-        // NEW: Sign-off statistics
         public int SignedOffStations { get; set; }
-        public int PendingSignOffStations { get; set; } // Complete but not signed off
+        public int PendingSignOffStations { get; set; }
         public double SignOffRate { get; set; }
         
         public Dictionary<string, int> StationTypeBreakdown { get; set; } = new Dictionary<string, int>();
         public Dictionary<string, int> CompletionBreakdown { get; set; } = new Dictionary<string, int>();
-        public Dictionary<string, int> SignOffBreakdown { get; set; } = new Dictionary<string, int>(); // NEW
+        public Dictionary<string, int> SignOffBreakdown { get; set; } = new Dictionary<string, int>();
     }
 
     public class OpportunityStationSummaryDto
@@ -248,12 +234,10 @@ namespace gasopper_crm_server.DTOs
         public int IncompleteStations { get; set; }
         public double CompletionPercentage { get; set; }
         
-        // NEW: Sign-off information
         public int SignedOffStations { get; set; }
         public bool AllStationsSignedOff { get; set; }
     }
 
-    // NEW: Sign-off specific DTO
     public class SignOffStationDto
     {
         [Required]

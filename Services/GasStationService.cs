@@ -1,5 +1,5 @@
-// FINAL FIXED GasStationService.cs - Corrected role-based permissions + completion logic
-// FIXES: Sign-off permissions now work correctly for all roles and completion states
+// Services/GasStationService.cs
+// COMPLETE: Added pagination support while maintaining ALL existing functionality - Full 700+ lines
 
 using Microsoft.EntityFrameworkCore;
 using gasopper_crm_server.Data;
@@ -11,6 +11,7 @@ namespace gasopper_crm_server.Services
 {
     public interface IGasStationService
     {
+        // EXISTING methods (unchanged)
         Task<GasStationResponseDto?> CreateGasStationAsync(int opportunityId, CreateGasStationDto dto, int currentUserId, int currentUserRole);
         Task<GasStationResponseDto?> GetGasStationByIdAsync(int id, int currentUserId, int currentUserRole);
         Task<List<GasStationListResponseDto>> GetGasStationsByOpportunityAsync(int opportunityId, int currentUserId, int currentUserRole);
@@ -22,10 +23,13 @@ namespace gasopper_crm_server.Services
         Task<GasStationStatsDto> GetGasStationStatsAsync(int currentUserId, int currentUserRole);
         Task<List<StationTypeDto>> GetStationTypesAsync();
         Task<bool> UpdateOpportunityStatusFromStationsAsync(int opportunityId, int currentUserId, int currentUserRole);
-
-        // FIXED: Sign-off functionality with role-based permissions
         Task<bool> SignOffStationAsync(int stationId, int currentUserId, int currentUserRole);
         Task<bool> CanUserSignOffStationAsync(int stationId, int currentUserId, int currentUserRole);
+
+        // FIXED - add the filter parameters to match your implementation
+Task<PaginatedGasStationResponseDto> GetGasStationsPaginatedAsync(int currentUserId, int currentUserRole, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
+Task<PaginatedGasStationResponseDto> GetMyGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
+Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null);
     }
 
     public class GasStationService : IGasStationService
@@ -37,6 +41,228 @@ namespace gasopper_crm_server.Services
             _context = context;
         }
 
+        // NEW: Get paginated gas stations with role-based filtering
+        public async Task<PaginatedGasStationResponseDto> GetGasStationsPaginatedAsync(int currentUserId, int currentUserRole, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null)
+        {
+            try
+            {
+                Console.WriteLine($"[DEBUG] GetGasStationsPaginatedAsync - UserId: {currentUserId}, Role: {currentUserRole}, Page: {page}, PageSize: {pageSize}, IsSignedOff: {isSignedOff}, Search: '{search}'");
+
+                var query = _context.GasStations
+                    .Include(gs => gs.StationType)
+                    .Include(gs => gs.CreatedByUser)
+                    .Include(gs => gs.Opportunity)
+                        .ThenInclude(o => o.Lead)
+                    .Where(gs => !gs.is_deleted);
+
+                // Apply role-based filtering
+                query = await ApplyRoleBasedFilteringAsync(query, currentUserId, currentUserRole);
+
+                // Apply status filter (isSignedOff)
+                if (isSignedOff.HasValue)
+                {
+                    query = query.Where(gs => gs.is_signed_off == isSignedOff.Value);
+                    Console.WriteLine($"[DEBUG] Applied status filter: isSignedOff = {isSignedOff.Value}");
+                }
+
+                // Apply search filter
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var searchLower = search.ToLower();
+                    query = query.Where(gs => 
+                        gs.station_name.ToLower().Contains(searchLower) ||
+                        gs.station_code.ToLower().Contains(searchLower));
+                    Console.WriteLine($"[DEBUG] Applied search filter: '{search}'");
+                }
+
+                // Get total count AFTER filtering
+                var totalItems = await query.CountAsync();
+                var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
+
+                // Apply pagination
+                var gasStations = await query
+                    .OrderBy(gs => gs.station_code)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                Console.WriteLine($"[DEBUG] Paginated gas stations with filters - Total: {totalItems}, Page: {page}/{totalPages}, Returned: {gasStations.Count}");
+
+                // Map to DTOs
+                var stationDtos = new List<GasStationListResponseDto>();
+                foreach (var gs in gasStations)
+                {
+                    stationDtos.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, currentUserRole));
+                }
+
+                return new PaginatedGasStationResponseDto
+                {
+                    Data = stationDtos,
+                    Pagination = new GasStationPaginationDto
+                    {
+                        CurrentPage = page,
+                        TotalPages = totalPages,
+                        TotalItems = totalItems,
+                        PageSize = pageSize
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetGasStationsPaginatedAsync failed: {ex.Message}");
+                return new PaginatedGasStationResponseDto();
+            }
+        }
+
+        // NEW: Get paginated user's own gas stations
+       public async Task<PaginatedGasStationResponseDto> GetMyGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null)
+        {
+            try
+            {
+                Console.WriteLine($"[DEBUG] GetMyGasStationsPaginatedAsync - UserId: {currentUserId}, Page: {page}, PageSize: {pageSize}, IsSignedOff: {isSignedOff}, Search: '{search}'");
+
+                var query = _context.GasStations
+                    .Include(gs => gs.StationType)
+                    .Include(gs => gs.CreatedByUser)
+                    .Include(gs => gs.Opportunity)
+                        .ThenInclude(o => o.Lead)
+                    .Where(gs => !gs.is_deleted && gs.Opportunity.assigned_to == currentUserId);
+
+                // Apply status filter (isSignedOff)
+                if (isSignedOff.HasValue)
+                {
+                    query = query.Where(gs => gs.is_signed_off == isSignedOff.Value);
+                    Console.WriteLine($"[DEBUG] Applied status filter: isSignedOff = {isSignedOff.Value}");
+                }
+
+                // Apply search filter
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var searchLower = search.ToLower();
+                    query = query.Where(gs => 
+                        gs.station_name.ToLower().Contains(searchLower) ||
+                        gs.station_code.ToLower().Contains(searchLower));
+                    Console.WriteLine($"[DEBUG] Applied search filter: '{search}'");
+                }
+
+                // Get total count AFTER filtering
+                var totalItems = await query.CountAsync();
+                var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
+
+                // Apply pagination
+                var gasStations = await query
+                    .OrderBy(gs => gs.station_code)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                Console.WriteLine($"[DEBUG] Paginated my gas stations with filters - Total: {totalItems}, Page: {page}/{totalPages}, Returned: {gasStations.Count}");
+
+                // Map to DTOs
+                var stationDtos = new List<GasStationListResponseDto>();
+                foreach (var gs in gasStations)
+                {
+                    stationDtos.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 3)); // Assume salesperson for "my stations"
+                }
+
+                return new PaginatedGasStationResponseDto
+                {
+                    Data = stationDtos,
+                    Pagination = new GasStationPaginationDto
+                    {
+                        CurrentPage = page,
+                        TotalPages = totalPages,
+                        TotalItems = totalItems,
+                        PageSize = pageSize
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetMyGasStationsPaginatedAsync failed: {ex.Message}");
+                return new PaginatedGasStationResponseDto();
+            }
+        }
+
+        // NEW: Get paginated team gas stations (Manager/Admin only)
+        // UPDATED: Get paginated team gas stations with filters (Manager/Admin only)
+        public async Task<PaginatedGasStationResponseDto> GetTeamGasStationsPaginatedAsync(int currentUserId, int page = 1, int pageSize = 20, bool? isSignedOff = null, string? search = null)
+        {
+            try
+            {
+                Console.WriteLine($"[DEBUG] GetTeamGasStationsPaginatedAsync - UserId: {currentUserId}, Page: {page}, PageSize: {pageSize}, IsSignedOff: {isSignedOff}, Search: '{search}'");
+
+                var teamMemberIds = await _context.Users
+                    .Where(u => u.manager_id == currentUserId && u.is_active)
+                    .Select(u => u.user_id)
+                    .ToListAsync();
+
+                teamMemberIds.Add(currentUserId);
+
+                var query = _context.GasStations
+                    .Include(gs => gs.StationType)
+                    .Include(gs => gs.CreatedByUser)
+                    .Include(gs => gs.Opportunity)
+                        .ThenInclude(o => o.Lead)
+                    .Where(gs => !gs.is_deleted && teamMemberIds.Contains(gs.Opportunity.assigned_to));
+
+                // Apply status filter (isSignedOff)
+                if (isSignedOff.HasValue)
+                {
+                    query = query.Where(gs => gs.is_signed_off == isSignedOff.Value);
+                    Console.WriteLine($"[DEBUG] Applied status filter: isSignedOff = {isSignedOff.Value}");
+                }
+
+                // Apply search filter
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    var searchLower = search.ToLower();
+                    query = query.Where(gs => 
+                        gs.station_name.ToLower().Contains(searchLower) ||
+                        gs.station_code.ToLower().Contains(searchLower));
+                    Console.WriteLine($"[DEBUG] Applied search filter: '{search}'");
+                }
+
+                // Get total count AFTER filtering
+                var totalItems = await query.CountAsync();
+                var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
+
+                // Apply pagination
+                var gasStations = await query
+                    .OrderBy(gs => gs.station_code)
+                    .Skip((page - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToListAsync();
+
+                Console.WriteLine($"[DEBUG] Paginated team gas stations with filters - Total: {totalItems}, Page: {page}/{totalPages}, Returned: {gasStations.Count}");
+
+                // Map to DTOs
+                var stationDtos = new List<GasStationListResponseDto>();
+                foreach (var gs in gasStations)
+                {
+                    stationDtos.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 2)); // Assume manager for team stations
+                }
+
+                return new PaginatedGasStationResponseDto
+                {
+                    Data = stationDtos,
+                    Pagination = new GasStationPaginationDto
+                    {
+                        CurrentPage = page,
+                        TotalPages = totalPages,
+                        TotalItems = totalItems,
+                        PageSize = pageSize
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] GetTeamGasStationsPaginatedAsync failed: {ex.Message}");
+                return new PaginatedGasStationResponseDto();
+            }
+        }
+
+        // EXISTING: Create gas station (UNCHANGED)
         public async Task<GasStationResponseDto?> CreateGasStationAsync(int opportunityId, CreateGasStationDto dto, int currentUserId, int currentUserRole)
         {
             try
@@ -96,6 +322,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Get gas station by ID (UNCHANGED)
         public async Task<GasStationResponseDto?> GetGasStationByIdAsync(int id, int currentUserId, int currentUserRole)
         {
             try
@@ -128,6 +355,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Get gas stations by opportunity (UNCHANGED)
         public async Task<List<GasStationListResponseDto>> GetGasStationsByOpportunityAsync(int opportunityId, int currentUserId, int currentUserRole)
         {
             try
@@ -161,6 +389,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Get all gas stations (UNCHANGED)
         public async Task<List<GasStationListResponseDto>> GetGasStationsAsync(int currentUserId, int currentUserRole)
         {
             try
@@ -192,6 +421,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Update gas station (UNCHANGED)
         public async Task<GasStationResponseDto?> UpdateGasStationAsync(int id, UpdateGasStationDto dto, int currentUserId, int currentUserRole)
         {
             try
@@ -250,6 +480,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Delete gas station (UNCHANGED)
         public async Task<bool> DeleteGasStationAsync(int id, int currentUserId, int currentUserRole)
         {
             try
@@ -292,7 +523,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // FIXED: Perfect sign-off implementation with role-based permissions
+        // EXISTING: Sign off station (UNCHANGED)
         public async Task<bool> SignOffStationAsync(int stationId, int currentUserId, int currentUserRole)
         {
             try
@@ -307,7 +538,6 @@ namespace gasopper_crm_server.Services
                     return false;
                 }
 
-                // FIXED: Use role-based permission logic instead of creator-only check
                 if (!await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole))
                 {
                     Console.WriteLine($"[ERROR] User {currentUserId} does not have permission to sign off station {stationId}");
@@ -320,7 +550,6 @@ namespace gasopper_crm_server.Services
                     return false;
                 }
 
-                // FIXED: Use completion percentage instead of strict validation
                 var completionPercentage = CalculateStationCompletionPercentage(gasStation);
                 if (completionPercentage < 100)
                 {
@@ -346,7 +575,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // FIXED: Perfect permission checking with role-based logic
+        // EXISTING: Can user sign off station (UNCHANGED)
         public async Task<bool> CanUserSignOffStationAsync(int stationId, int currentUserId, int currentUserRole)
         {
             try
@@ -361,11 +590,9 @@ namespace gasopper_crm_server.Services
                 if (gasStation.is_signed_off)
                     return false;
 
-                // FIXED: Use role-based permission logic for consistency
                 if (!await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole))
                     return false;
 
-                // FIXED: Use completion percentage instead of strict validation
                 var completionPercentage = CalculateStationCompletionPercentage(gasStation);
                 return completionPercentage >= 100;
             }
@@ -376,6 +603,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Get my gas stations (UNCHANGED)
         public async Task<List<GasStationListResponseDto>> GetMyGasStationsAsync(int currentUserId)
         {
             try
@@ -392,7 +620,7 @@ namespace gasopper_crm_server.Services
                 var results = new List<GasStationListResponseDto>();
                 foreach (var gs in gasStations)
                 {
-                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 3)); // Assume salesperson for "my stations"
+                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 3));
                 }
                 return results;
             }
@@ -403,6 +631,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Get team gas stations (UNCHANGED)
         public async Task<List<GasStationListResponseDto>> GetTeamGasStationsAsync(int currentUserId)
         {
             try
@@ -426,7 +655,7 @@ namespace gasopper_crm_server.Services
                 var results = new List<GasStationListResponseDto>();
                 foreach (var gs in gasStations)
                 {
-                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 2)); // Assume manager for team stations
+                    results.Add(await MapToGasStationListResponseDtoAsync(gs, currentUserId, 2));
                 }
                 return results;
             }
@@ -437,6 +666,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Get gas station stats (UNCHANGED)
         public async Task<GasStationStatsDto> GetGasStationStatsAsync(int currentUserId, int currentUserRole)
         {
             try
@@ -451,8 +681,6 @@ namespace gasopper_crm_server.Services
                 var gasStations = await query.ToListAsync();
 
                 var totalStations = gasStations.Count;
-                
-                // FIXED: Use completion percentage for consistency
                 var completeStations = gasStations.Count(gs => CalculateStationCompletionPercentage(gs) >= 100);
                 var incompleteStations = totalStations - completeStations;
                 var completionRate = totalStations > 0 ? (double)completeStations / totalStations * 100 : 0;
@@ -504,6 +732,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Get station types (UNCHANGED)
         public async Task<List<StationTypeDto>> GetStationTypesAsync()
         {
             try
@@ -525,6 +754,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Update opportunity status from stations (UNCHANGED)
         public async Task<bool> UpdateOpportunityStatusFromStationsAsync(int opportunityId, int currentUserId, int currentUserRole)
         {
             try
@@ -548,7 +778,7 @@ namespace gasopper_crm_server.Services
                 var totalStations = opportunity.GasStations.Count;
                 var signedOffStations = opportunity.GasStations.Count(gs => gs.is_signed_off);
 
-                int newStatusId = (totalStations > 0 && signedOffStations == totalStations) ? 3 : 2; // 3 = Complete, 2 = Active
+                int newStatusId = (totalStations > 0 && signedOffStations == totalStations) ? 3 : 2;
                 if (opportunity.status_id != newStatusId)
                 {
                     opportunity.status_id = newStatusId;
@@ -565,12 +795,32 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        // Perfect role-based permission logic
+        // EXISTING: Role-based filtering helper (used by pagination)
+        private async Task<IQueryable<GasStation>> ApplyRoleBasedFilteringAsync(IQueryable<GasStation> query, int currentUserId, int currentUserRole)
+        {
+            if (currentUserRole == 3) // Salesperson
+            {
+                return query.Where(gs => gs.Opportunity.assigned_to == currentUserId);
+            }
+            else if (currentUserRole == 2) // Manager
+            {
+                var teamMemberIds = await _context.Users
+                    .Where(u => u.manager_id == currentUserId && u.is_active)
+                    .Select(u => u.user_id)
+                    .ToListAsync();
+
+                teamMemberIds.Add(currentUserId);
+                return query.Where(gs => teamMemberIds.Contains(gs.Opportunity.assigned_to));
+            }
+
+            return query; // Admin
+        }
+
+        // EXISTING: Can user edit station (UNCHANGED)
         private async Task<bool> CanUserEditStationAsync(GasStation gasStation, int currentUserId, int currentUserRole)
         {
             try
             {
-                // Load the Opportunity relationship if not already loaded
                 if (gasStation.Opportunity == null)
                 {
                     await _context.Entry(gasStation)
@@ -584,22 +834,18 @@ namespace gasopper_crm_server.Services
                     return false;
                 }
 
-                // Admin can edit any station
                 if (currentUserRole == 1)
                 {
                     return true;
                 }
 
-                // Manager can edit stations from opportunities assigned to them or their team
                 if (currentUserRole == 2)
                 {
-                    // Can edit if opportunity is assigned to manager
                     if (gasStation.Opportunity.assigned_to == currentUserId)
                     {
                         return true;
                     }
 
-                    // Can edit if opportunity is assigned to a team member
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
                         .Select(u => u.user_id)
@@ -608,7 +854,6 @@ namespace gasopper_crm_server.Services
                     return teamMemberIds.Contains(gasStation.Opportunity.assigned_to);
                 }
 
-                // Salesperson can edit stations from opportunities assigned to them
                 if (currentUserRole == 3)
                 {
                     return gasStation.Opportunity.assigned_to == currentUserId;
@@ -623,6 +868,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // EXISTING: Can user access opportunity (UNCHANGED)
         private async Task<bool> CanUserAccessOpportunityAsync(int opportunityId, int userId, int userRole)
         {
             try
@@ -656,38 +902,18 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        private async Task<IQueryable<GasStation>> ApplyRoleBasedFilteringAsync(IQueryable<GasStation> query, int currentUserId, int currentUserRole)
-        {
-            if (currentUserRole == 3) // Salesperson
-            {
-                return query.Where(gs => gs.Opportunity.assigned_to == currentUserId);
-            }
-            else if (currentUserRole == 2) // Manager
-            {
-                var teamMemberIds = await _context.Users
-                    .Where(u => u.manager_id == currentUserId && u.is_active)
-                    .Select(u => u.user_id)
-                    .ToListAsync();
-
-                teamMemberIds.Add(currentUserId);
-                return query.Where(gs => teamMemberIds.Contains(gs.Opportunity.assigned_to));
-            }
-
-            return query; // Admin
-        }
-
-        // FIXED: Use completion percentage for isComplete calculation
+        // EXISTING: Is station complete (UNCHANGED)
         private static bool IsStationComplete(GasStation station)
         {
             return CalculateStationCompletionPercentage(station) >= 100;
         }
 
+        // EXISTING: Calculate station completion percentage (UNCHANGED)
         private static double CalculateStationCompletionPercentage(GasStation station)
         {
-            var totalFields = 10; // Match frontend calculation
+            var totalFields = 10;
             var filledFields = 0;
 
-            // Same 10 fields as frontend
             if (!string.IsNullOrWhiteSpace(station.station_name)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.address_line_1)) filledFields++;
             if (!string.IsNullOrWhiteSpace(station.city)) filledFields++;
@@ -702,13 +928,11 @@ namespace gasopper_crm_server.Services
             return Math.Round((double)filledFields / totalFields * 100, 1);
         }
 
-        // FIXED: Perfect DTO mapping with role-based permissions and completion percentage
+        // EXISTING: Map to gas station response DTO (UNCHANGED)
         private async Task<GasStationResponseDto> MapToGasStationResponseDtoAsync(GasStation gasStation, int currentUserId, int currentUserRole)
         {
             var canEdit = await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole);
             var completionPercentage = CalculateStationCompletionPercentage(gasStation);
-            
-            // FIXED: Use completion percentage instead of strict validation
             var canSignOff = canEdit && !gasStation.is_signed_off && completionPercentage >= 100;
             
             return new GasStationResponseDto
@@ -731,12 +955,12 @@ namespace gasopper_crm_server.Services
                 NumberOfEmployees = gasStation.number_of_employees,
                 StationTypeId = gasStation.station_type_id,
                 Notes = gasStation.notes,
-                IsComplete = completionPercentage >= 100, // FIXED: Use completion percentage
+                IsComplete = completionPercentage >= 100,
                 CompletionPercentage = completionPercentage,
                 IsSignedOff = gasStation.is_signed_off,
                 SignedOffAt = gasStation.signed_off_at,
-                CanSignOff = canSignOff, // FIXED: Role-based + completion percentage
-                CanEdit = canEdit && !gasStation.is_signed_off, // FIXED: Role-based permission calculation
+                CanSignOff = canSignOff,
+                CanEdit = canEdit && !gasStation.is_signed_off,
                 CreatedBy = gasStation.created_by,
                 CreatedByName = $"{gasStation.CreatedByUser?.first_name ?? ""} {gasStation.CreatedByUser?.last_name ?? ""}".Trim(),
                 CreatedAt = gasStation.created_at,
@@ -746,12 +970,11 @@ namespace gasopper_crm_server.Services
             };
         }
 
+        // EXISTING: Map to gas station list response DTO (UNCHANGED)
         private async Task<GasStationListResponseDto> MapToGasStationListResponseDtoAsync(GasStation gasStation, int currentUserId, int currentUserRole)
         {
             var canEdit = await CanUserEditStationAsync(gasStation, currentUserId, currentUserRole);
             var completionPercentage = CalculateStationCompletionPercentage(gasStation);
-            
-            // FIXED: Use completion percentage instead of strict validation
             var canSignOff = canEdit && !gasStation.is_signed_off && completionPercentage >= 100;
             
             return new GasStationListResponseDto
@@ -773,12 +996,12 @@ namespace gasopper_crm_server.Services
                 NumberOfPumps = gasStation.number_of_pumps,
                 NumberOfEmployees = gasStation.number_of_employees,
                 StationTypeId = gasStation.station_type_id,
-                IsComplete = completionPercentage >= 100, // FIXED: Use completion percentage
+                IsComplete = completionPercentage >= 100,
                 CompletionPercentage = completionPercentage,
                 IsSignedOff = gasStation.is_signed_off,
                 SignedOffAt = gasStation.signed_off_at,
-                CanSignOff = canSignOff, // FIXED: Role-based + completion percentage
-                CanEdit = canEdit && !gasStation.is_signed_off, // FIXED: Role-based permission calculation
+                CanSignOff = canSignOff,
+                CanEdit = canEdit && !gasStation.is_signed_off,
                 CreatedByName = $"{gasStation.CreatedByUser?.first_name ?? ""} {gasStation.CreatedByUser?.last_name ?? ""}".Trim(),
                 CreatedAt = gasStation.created_at,
                 OpportunityLeadName = gasStation.Opportunity?.Lead?.name ?? ""
