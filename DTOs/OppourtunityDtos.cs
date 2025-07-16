@@ -2,18 +2,17 @@ using System.ComponentModel.DataAnnotations;
 
 namespace gasopper_crm_server.DTOs
 {
-    // REMOVED: Duplicate PaginationDto - Now using shared version from PaginationDtos.cs
-
     // Use shared PaginatedResponseDto<T> instead of custom pagination response
     public class PaginatedOpportunitiesResponseDto : PaginatedResponseDto<OpportunityListDto>
     {
         // Inherits Data and Pagination properties from base class
     }
 
-    // Opportunity-specific filters extending the base
+    // UPDATED: Opportunity-specific filters with completion status
     public class OpportunityFilters : BaseFilters
     {
-        // Add any opportunity-specific filter properties here if needed
+        public bool? CompletionStatus { get; set; } // null=all, true=complete, false=incomplete
+        public bool ShowSelfOnly { get; set; } = false; // Toggle for self-only filter
     }
 
     public class CreateOpportunityDto

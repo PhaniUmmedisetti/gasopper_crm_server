@@ -18,10 +18,11 @@ namespace gasopper_crm_server.Services
         Task<List<OpportunityStatusDto>> GetOpportunityStatusesAsync();
         Task<bool> UpdateOpportunityStatusBasedOnStationsAsync(int opportunityId);
 
-        // NEW: Simple pagination methods
-        Task<PaginatedOpportunitiesResponseDto> GetOpportunitiesPaginatedAsync(int currentUserId, int currentUserRole, int page, int pageSize, bool includeDeleted = false);
-        Task<PaginatedOpportunitiesResponseDto> GetMyOpportunitiesPaginatedAsync(int currentUserId, int page, int pageSize);
-        Task<PaginatedOpportunitiesResponseDto> GetTeamOpportunitiesPaginatedAsync(int managerId, int page, int pageSize);
+
+        // UPDATED: Enhanced pagination methods with completion status filtering
+        Task<PaginatedOpportunitiesResponseDto> GetOpportunitiesPaginatedAsync(int currentUserId, int currentUserRole, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false, bool includeDeleted = false);
+        Task<PaginatedOpportunitiesResponseDto> GetMyOpportunitiesPaginatedAsync(int currentUserId, int page, int pageSize, bool? completionStatus = null);
+        Task<PaginatedOpportunitiesResponseDto> GetTeamOpportunitiesPaginatedAsync(int managerId, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false);
     }
 
     public class OpportunityService : IOpportunityService
@@ -120,7 +121,9 @@ namespace gasopper_crm_server.Services
         }
 
         // NEW: Paginated methods
-        public async Task<PaginatedOpportunitiesResponseDto> GetOpportunitiesPaginatedAsync(int currentUserId, int currentUserRole, int page, int pageSize, bool includeDeleted = false)
+        // UPDATED: Enhanced pagination methods with completion status filtering// FIXED: Enhanced pagination methods with correct completion status filtering
+       // FIXED: Enhanced pagination methods with correct completion status filtering
+        public async Task<PaginatedOpportunitiesResponseDto> GetOpportunitiesPaginatedAsync(int currentUserId, int currentUserRole, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false, bool includeDeleted = false)
         {
             try
             {
@@ -137,28 +140,68 @@ namespace gasopper_crm_server.Services
                     query = query.Where(o => !o.is_deleted);
                 }
 
-                if (currentUserRole == 3)
+                // FIXED: Apply role-based filtering with proper showSelfOnly logic
+                if (currentUserRole == 3) // Salesperson - always self only
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager
                 {
-                    var teamMemberIds = await _context.Users
-                        .Where(u => u.manager_id == currentUserId && u.is_active)
-                        .Select(u => u.user_id)
-                        .ToListAsync();
-                    teamMemberIds.Add(currentUserId);
-                    query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
+                    if (showSelfOnly)
+                    {
+                        // Manager wants only their own opportunities
+                        query = query.Where(o => o.assigned_to == currentUserId);
+                    }
+                    else
+                    {
+                        // Manager wants team opportunities (including their own)
+                        var teamMemberIds = await _context.Users
+                            .Where(u => u.manager_id == currentUserId && u.is_active)
+                            .Select(u => u.user_id)
+                            .ToListAsync();
+                        teamMemberIds.Add(currentUserId);
+                        query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
+                    }
+                }
+                else if (currentUserRole == 1) // Admin
+                {
+                    if (showSelfOnly)
+                    {
+                        // Admin wants only opportunities assigned to them specifically
+                        query = query.Where(o => o.assigned_to == currentUserId);
+                    }
+                    // If showSelfOnly is false, Admin sees ALL opportunities (no additional filtering)
                 }
 
-                var totalItems = await query.CountAsync();
-                var opportunities = await query
+                // Get opportunities after role filtering
+                var opportunities = await query.ToListAsync();
+
+                // FIXED: Apply completion status filtering in memory
+                if (completionStatus.HasValue)
+                {
+                    opportunities = opportunities.Where(opp =>
+                    {
+                        var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
+                        
+                        if (completionStatus.Value) // Complete: has stations AND all are signed off
+                        {
+                            return stations.Any() && stations.All(gs => gs.is_signed_off);
+                        }
+                        else // Incomplete: no stations OR at least one not signed off
+                        {
+                            return !stations.Any() || stations.Any(gs => !gs.is_signed_off);
+                        }
+                    }).ToList();
+                }
+
+                var totalItems = opportunities.Count;
+                var paginatedOpportunities = opportunities
                     .OrderByDescending(o => o.last_updated)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
-                    .ToListAsync();
+                    .ToList();
 
-                var result = opportunities.Select(MapToOpportunityListDto).ToList();
+                var result = paginatedOpportunities.Select(MapToOpportunityListDto).ToList();
                 var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
 
                 return new PaginatedOpportunitiesResponseDto
@@ -173,8 +216,10 @@ namespace gasopper_crm_server.Services
                     }
                 };
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                // Log the exception for debugging
+                Console.WriteLine($"Error in GetOpportunitiesPaginatedAsync: {ex.Message}");
                 return new PaginatedOpportunitiesResponseDto
                 {
                     Data = new List<OpportunityListDto>(),
@@ -189,7 +234,7 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        public async Task<PaginatedOpportunitiesResponseDto> GetMyOpportunitiesPaginatedAsync(int currentUserId, int page, int pageSize)
+        public async Task<PaginatedOpportunitiesResponseDto> GetMyOpportunitiesPaginatedAsync(int currentUserId, int page, int pageSize, bool? completionStatus = null)
         {
             try
             {
@@ -201,14 +246,34 @@ namespace gasopper_crm_server.Services
                     .Where(o => o.assigned_to == currentUserId && !o.is_deleted)
                     .Where(o => o.Lead != null && !o.Lead.is_deleted);
 
-                var totalItems = await query.CountAsync();
-                var opportunities = await query
+                var opportunities = await query.ToListAsync();
+
+                // FIXED: Apply completion status filtering in memory
+                if (completionStatus.HasValue)
+                {
+                    opportunities = opportunities.Where(opp =>
+                    {
+                        var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
+                        
+                        if (completionStatus.Value) // Complete
+                        {
+                            return stations.Any() && stations.All(gs => gs.is_signed_off);
+                        }
+                        else // Incomplete
+                        {
+                            return !stations.Any() || stations.Any(gs => !gs.is_signed_off);
+                        }
+                    }).ToList();
+                }
+
+                var totalItems = opportunities.Count;
+                var paginatedOpportunities = opportunities
                     .OrderByDescending(o => o.last_updated)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
-                    .ToListAsync();
+                    .ToList();
 
-                var result = opportunities.Select(MapToOpportunityListDto).ToList();
+                var result = paginatedOpportunities.Select(MapToOpportunityListDto).ToList();
                 var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
 
                 return new PaginatedOpportunitiesResponseDto
@@ -239,32 +304,61 @@ namespace gasopper_crm_server.Services
             }
         }
 
-        public async Task<PaginatedOpportunitiesResponseDto> GetTeamOpportunitiesPaginatedAsync(int managerId, int page, int pageSize)
+ public async Task<PaginatedOpportunitiesResponseDto> GetTeamOpportunitiesPaginatedAsync(int managerId, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false)
         {
             try
             {
-                var teamMemberIds = await _context.Users
-                    .Where(u => u.manager_id == managerId && u.is_active)
-                    .Select(u => u.user_id)
-                    .ToListAsync();
-                teamMemberIds.Add(managerId);
-
                 var query = _context.Opportunities
                     .Include(o => o.Lead)
                     .Include(o => o.OpportunityStatus)
                     .Include(o => o.AssignedToUser)
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
-                    .Where(o => teamMemberIds.Contains(o.assigned_to) && !o.is_deleted)
+                    .Where(o => !o.is_deleted)
                     .Where(o => o.Lead != null && !o.Lead.is_deleted);
 
-                var totalItems = await query.CountAsync();
-                var opportunities = await query
+                // Apply self-only or team filtering
+                if (showSelfOnly)
+                {
+                    query = query.Where(o => o.assigned_to == managerId);
+                }
+                else
+                {
+                    var teamMemberIds = await _context.Users
+                        .Where(u => u.manager_id == managerId && u.is_active)
+                        .Select(u => u.user_id)
+                        .ToListAsync();
+                    teamMemberIds.Add(managerId);
+                    query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
+                }
+
+                var opportunities = await query.ToListAsync();
+
+                // FIXED: Apply completion status filtering in memory
+                if (completionStatus.HasValue)
+                {
+                    opportunities = opportunities.Where(opp =>
+                    {
+                        var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
+                        
+                        if (completionStatus.Value) // Complete
+                        {
+                            return stations.Any() && stations.All(gs => gs.is_signed_off);
+                        }
+                        else // Incomplete
+                        {
+                            return !stations.Any() || stations.Any(gs => !gs.is_signed_off);
+                        }
+                    }).ToList();
+                }
+
+                var totalItems = opportunities.Count;
+                var paginatedOpportunities = opportunities
                     .OrderByDescending(o => o.last_updated)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
-                    .ToListAsync();
+                    .ToList();
 
-                var result = opportunities.Select(MapToOpportunityListDto).ToList();
+                var result = paginatedOpportunities.Select(MapToOpportunityListDto).ToList();
                 var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
 
                 return new PaginatedOpportunitiesResponseDto

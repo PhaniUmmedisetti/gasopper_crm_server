@@ -37,12 +37,16 @@ namespace gasopper_crm_server.Controllers
         public async Task<IActionResult> GetOpportunitiesPaginated(
             [FromQuery] int page = 1,
             [FromQuery] int pageSize = 20,
+            [FromQuery] bool? completionStatus = null,
+            [FromQuery] bool showSelfOnly = false,
             [FromQuery] bool includeDeleted = false)
         {
             try
             {
                 var (currentUserId, currentUserRole) = GetCurrentUserInfo();
-                var result = await _opportunityService.GetOpportunitiesPaginatedAsync(currentUserId, currentUserRole, page, Math.Min(pageSize, 100), includeDeleted);
+                var result = await _opportunityService.GetOpportunitiesPaginatedAsync(
+                    currentUserId, currentUserRole, page, Math.Min(pageSize, 100),
+                    completionStatus, showSelfOnly, includeDeleted);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -137,13 +141,15 @@ namespace gasopper_crm_server.Controllers
 
         [HttpGet("my-opportunities/paginated")]
         public async Task<IActionResult> GetMyOpportunitiesPaginated(
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 20)
+           [FromQuery] int page = 1,
+           [FromQuery] int pageSize = 20,
+           [FromQuery] bool? completionStatus = null)
         {
             try
             {
                 var (currentUserId, _) = GetCurrentUserInfo();
-                var result = await _opportunityService.GetMyOpportunitiesPaginatedAsync(currentUserId, page, Math.Min(pageSize, 100));
+                var result = await _opportunityService.GetMyOpportunitiesPaginatedAsync(
+                    currentUserId, page, Math.Min(pageSize, 100), completionStatus);
                 return Ok(result);
             }
             catch (Exception ex)
@@ -171,13 +177,16 @@ namespace gasopper_crm_server.Controllers
         [HttpGet("team-opportunities/paginated")]
         [Authorize(Roles = "Manager,Admin")]
         public async Task<IActionResult> GetTeamOpportunitiesPaginated(
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 20)
+           [FromQuery] int page = 1,
+           [FromQuery] int pageSize = 20,
+           [FromQuery] bool? completionStatus = null,
+           [FromQuery] bool showSelfOnly = false)
         {
             try
             {
                 var (currentUserId, _) = GetCurrentUserInfo();
-                var result = await _opportunityService.GetTeamOpportunitiesPaginatedAsync(currentUserId, page, Math.Min(pageSize, 100));
+                var result = await _opportunityService.GetTeamOpportunitiesPaginatedAsync(
+                    currentUserId, page, Math.Min(pageSize, 100), completionStatus, showSelfOnly);
                 return Ok(result);
             }
             catch (Exception ex)
