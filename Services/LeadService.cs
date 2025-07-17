@@ -36,6 +36,7 @@ namespace gasopper_crm_server.Services
             {
                 var assignedTo = createLeadDto.AssignedTo ?? currentUserId;
 
+                // Salesperson cannot assign to others
                 if (createLeadDto.AssignedTo.HasValue && createLeadDto.AssignedTo != currentUserId && currentUserRole == 3)
                     return null;
 
@@ -52,7 +53,10 @@ namespace gasopper_crm_server.Services
                     referral_address = createLeadDto.ReferralAddress,
                     assigned_to = assignedTo,
                     created_by = currentUserId,
-                    status_id = 1
+                    status_id = 1, // Default to "New" status
+                    created_at = DateTime.UtcNow,
+                    last_updated = DateTime.UtcNow,
+                    is_deleted = false
                 };
 
                 _context.Leads.Add(lead);
@@ -60,8 +64,9 @@ namespace gasopper_crm_server.Services
 
                 return await GetLeadByIdAsync(lead.lead_id, currentUserId, currentUserRole);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] CreateLeadAsync failed: {ex.Message}");
                 return null;
             }
         }
@@ -76,11 +81,12 @@ namespace gasopper_crm_server.Services
                     .Include(l => l.Status)
                     .Where(l => l.lead_id == leadId && !l.is_deleted);
 
-                if (currentUserRole == 3)
+                // Apply role-based filtering
+                if (currentUserRole == 3) // Salesperson
                 {
                     query = query.Where(l => l.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager
                 {
                     var teamIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -90,10 +96,12 @@ namespace gasopper_crm_server.Services
 
                     query = query.Where(l => teamIds.Contains(l.assigned_to));
                 }
+                // Admin sees all (no additional filtering)
 
                 var lead = await query.FirstOrDefaultAsync();
                 if (lead == null) return null;
 
+                // Check for associated opportunity with role-based access
                 var hasOpportunity = await _context.Opportunities
                     .Where(o => o.lead_id == leadId && !o.is_deleted)
                     .Where(o => currentUserRole == 1 ||
@@ -141,8 +149,9 @@ namespace gasopper_crm_server.Services
                     IsDeleted = lead.is_deleted
                 };
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] GetLeadByIdAsync failed: {ex.Message}");
                 return null;
             }
         }
@@ -160,11 +169,12 @@ namespace gasopper_crm_server.Services
                 if (!includeDeleted)
                     query = query.Where(l => !l.is_deleted);
 
-                if (currentUserRole == 3)
+                // Apply role-based filtering
+                if (currentUserRole == 3) // Salesperson
                 {
                     query = query.Where(l => l.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager
                 {
                     var teamIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -174,6 +184,7 @@ namespace gasopper_crm_server.Services
 
                     query = query.Where(l => teamIds.Contains(l.assigned_to));
                 }
+                // Admin sees all (no additional filtering)
 
                 var totalItems = await query.CountAsync();
                 var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
@@ -185,6 +196,7 @@ namespace gasopper_crm_server.Services
                     .Take(pageSize)
                     .ToListAsync();
 
+                // Get accessible opportunities for has_opportunity flag
                 var allOpportunities = await _context.Opportunities
                     .Where(o => !o.is_deleted)
                     .Select(o => new { o.lead_id, o.assigned_to, o.opportunity_id })
@@ -192,18 +204,18 @@ namespace gasopper_crm_server.Services
 
                 var accessibleOpportunityLeadIds = new List<int>();
 
-                if (currentUserRole == 1)
+                if (currentUserRole == 1) // Admin
                 {
                     accessibleOpportunityLeadIds = allOpportunities.Select(o => o.lead_id).ToList();
                 }
-                else if (currentUserRole == 3)
+                else if (currentUserRole == 3) // Salesperson
                 {
                     accessibleOpportunityLeadIds = allOpportunities
                         .Where(o => o.assigned_to == currentUserId)
                         .Select(o => o.lead_id)
                         .ToList();
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager
                 {
                     var teamIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -246,8 +258,9 @@ namespace gasopper_crm_server.Services
                     }
                 };
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] GetLeadsAsync failed: {ex.Message}");
                 return new PaginatedLeadResponseDto
                 {
                     Data = new List<LeadListResponseDto>(),
@@ -264,6 +277,7 @@ namespace gasopper_crm_server.Services
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return null;
 
+                // Update basic fields
                 if (!string.IsNullOrEmpty(updateLeadDto.Name))
                     lead.name = updateLeadDto.Name;
                 if (!string.IsNullOrEmpty(updateLeadDto.PhoneNumber))
@@ -275,6 +289,7 @@ namespace gasopper_crm_server.Services
                 if (updateLeadDto.ExpectedStations.HasValue)
                     lead.expected_stations = updateLeadDto.ExpectedStations.Value;
 
+                // Update referral fields (nullable)
                 if (updateLeadDto.ReferralName != null)
                     lead.referral_name = updateLeadDto.ReferralName;
                 if (updateLeadDto.ReferralEmail != null)
@@ -284,14 +299,17 @@ namespace gasopper_crm_server.Services
                 if (updateLeadDto.ReferralAddress != null)
                     lead.referral_address = updateLeadDto.ReferralAddress;
 
+                // Only Admin/Manager can reassign leads
                 if (updateLeadDto.AssignedTo.HasValue && (currentUserRole == 1 || currentUserRole == 2))
                     lead.assigned_to = updateLeadDto.AssignedTo.Value;
 
+                lead.last_updated = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
                 return await GetLeadByIdAsync(leadId, currentUserId, currentUserRole);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] UpdateLeadAsync failed: {ex.Message}");
                 return null;
             }
         }
@@ -305,11 +323,13 @@ namespace gasopper_crm_server.Services
                     return false;
 
                 lead.is_deleted = true;
+                lead.last_updated = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
                 return true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] DeleteLeadAsync failed: {ex.Message}");
                 return false;
             }
         }
@@ -322,6 +342,7 @@ namespace gasopper_crm_server.Services
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return null;
 
+                // Validate status range (1-7 for lead statuses)
                 if (updateStatusDto.StatusId < 1 || updateStatusDto.StatusId > 7)
                     return null;
 
@@ -332,29 +353,69 @@ namespace gasopper_crm_server.Services
                     return null;
 
                 lead.status_id = updateStatusDto.StatusId;
+                lead.last_updated = DateTime.UtcNow;
                 await _context.SaveChangesAsync();
                 return await GetLeadByIdAsync(leadId, currentUserId, currentUserRole);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] UpdateLeadStatusAsync failed: {ex.Message}");
                 return null;
             }
         }
 
+        /// <summary>
+        /// Converts a lead to an opportunity with updated assignment logic.
+        /// Both created_by and assigned_to default to the converting user.
+        /// </summary>
         public async Task<LeadResponseDto?> ConvertToOpportunityAsync(int leadId, ConvertLeadToOpportunityDto convertDto, int currentUserId, int currentUserRole)
         {
             try
             {
+                // Get the lead first
                 var lead = await _context.Leads
-                    .Include(l => l.Opportunity)
+                    .Include(l => l.Status)
+                    .Include(l => l.AssignedToUser)
+                    .Include(l => l.CreatedByUser)
                     .FirstOrDefaultAsync(l => l.lead_id == leadId && !l.is_deleted);
 
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return null;
 
-                if (lead.Opportunity != null && !lead.Opportunity.is_deleted)
-                    return null;
+                // Check if lead already has an opportunity (1:1 relationship)
+                var existingOpportunity = await _context.Opportunities
+                    .FirstOrDefaultAsync(o => o.lead_id == leadId);
 
+                if (existingOpportunity != null)
+                    return null; // Lead already converted
+
+                // UPDATED LOGIC: Both created_by and assigned_to set to converting user
+                // Unless specifically overridden by AssignedTo in the DTO
+                var assignedToUser = convertDto.AssignedTo ?? currentUserId; // Default to current user
+
+                // Validate assignment permissions for Admin/Manager roles
+                if (convertDto.AssignedTo.HasValue && convertDto.AssignedTo.Value != currentUserId)
+                {
+                    // Only Admin/Manager can assign to others
+                    if (currentUserRole > 2) // Salesperson cannot assign to others
+                    {
+                        assignedToUser = currentUserId; // Force assignment to self for salespeople
+                    }
+                    else if (currentUserRole == 2) // Manager can only assign to team members
+                    {
+                        var isTeamMember = await _context.Users
+                            .AnyAsync(u => u.user_id == convertDto.AssignedTo.Value &&
+                                          (u.manager_id == currentUserId || u.user_id == currentUserId));
+
+                        if (!isTeamMember)
+                        {
+                            assignedToUser = currentUserId; // Default to self if not team member
+                        }
+                    }
+                    // Admin (role 1) can assign to anyone, so use the provided value
+                }
+
+                // Create opportunity with converting user as both creator and assignee (by default)
                 var opportunity = new Opportunity
                 {
                     lead_id = leadId,
@@ -366,27 +427,45 @@ namespace gasopper_crm_server.Services
                     postal_code = convertDto.PostalCode,
                     country = convertDto.Country ?? "United States",
                     actual_stations = convertDto.ActualStations,
-                    assigned_to = convertDto.AssignedTo ?? lead.assigned_to,
-                    created_by = currentUserId,
-                    status_id = 1
+                    
+                    // KEY CHANGE: Both fields set to converting user (unless overridden by valid assignment)
+                    assigned_to = assignedToUser,     // Converting user or valid assignee
+                    created_by = currentUserId,       // Always the converting user
+                    
+                    status_id = 1, // Active status
+                    created_at = DateTime.UtcNow,
+                    last_updated = DateTime.UtcNow,
+                    is_deleted = false
                 };
 
                 _context.Opportunities.Add(opportunity);
 
-                var convertedStatus = await _context.LeadStatuses
-                    .Where(s => s.status_name.ToLower().Contains("converted"))
-                    .Select(s => s.status_id)
-                    .FirstOrDefaultAsync();
-
-                lead.status_id = convertedStatus > 0 ? convertedStatus : 2;
+                // Update lead status to converted
+                var convertedStatusId = await GetConvertedStatusId();
+                lead.status_id = convertedStatusId;
+                lead.last_updated = DateTime.UtcNow;
 
                 await _context.SaveChangesAsync();
+
+                // Return updated lead with opportunity information
                 return await GetLeadByIdAsync(leadId, currentUserId, currentUserRole);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] ConvertToOpportunityAsync failed: {ex.Message}");
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Helper method to get the "Converted" status ID
+        /// </summary>
+        private async Task<int> GetConvertedStatusId()
+        {
+            var convertedStatus = await _context.LeadStatuses
+                .FirstOrDefaultAsync(s => s.status_name.ToLower() == "converted");
+            
+            return convertedStatus?.status_id ?? 5; // Default to 5 if not found
         }
 
         public async Task<List<LeadListResponseDto>> GetMyLeadsAsync(int currentUserId)
@@ -409,11 +488,12 @@ namespace gasopper_crm_server.Services
                     .Include(l => l.Status)
                     .Where(l => !l.is_deleted);
 
-                if (currentUserRole == 3)
+                // Apply role-based filtering
+                if (currentUserRole == 3) // Salesperson
                 {
                     leadsQuery = leadsQuery.Where(l => l.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager
                 {
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -423,9 +503,11 @@ namespace gasopper_crm_server.Services
                     teamMemberIds.Add(currentUserId);
                     leadsQuery = leadsQuery.Where(l => teamMemberIds.Contains(l.assigned_to));
                 }
+                // Admin sees all (no additional filtering)
 
                 var totalLeads = await leadsQuery.CountAsync();
 
+                // Get converted opportunities with role-based access
                 var opportunitiesQuery = _context.Opportunities
                     .Where(o => !o.is_deleted)
                     .Where(o => o.lead_id != null)
@@ -434,11 +516,11 @@ namespace gasopper_crm_server.Services
                           l => l.lead_id,
                           (o, l) => o);
 
-                if (currentUserRole == 3)
+                if (currentUserRole == 3) // Salesperson
                 {
                     opportunitiesQuery = opportunitiesQuery.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager
                 {
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -448,11 +530,13 @@ namespace gasopper_crm_server.Services
                     teamMemberIds.Add(currentUserId);
                     opportunitiesQuery = opportunitiesQuery.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
+                // Admin sees all (no additional filtering)
 
                 var convertedOpportunities = await opportunitiesQuery.CountAsync();
 
                 var conversionRate = totalLeads > 0 ? Math.Round((double)convertedOpportunities / totalLeads * 100, 1) : 0.0;
 
+                // Calculate average days to convert
                 var conversions = await (from l in leadsQuery
                                          join o in opportunitiesQuery on l.lead_id equals o.lead_id
                                          select new
@@ -465,25 +549,34 @@ namespace gasopper_crm_server.Services
                     ? Math.Round(conversions.Average(c => (c.OpportunityCreated - c.LeadCreated).TotalDays), 1)
                     : 0.0;
 
+                // Get status breakdown
                 var statusBreakdown = await leadsQuery
                     .GroupBy(l => l.Status.status_name)
                     .Select(g => new { Status = g.Key, Count = g.Count() })
                     .ToDictionaryAsync(x => x.Status ?? "", x => x.Count);
 
+                // Get new leads count (status_id = 1)
+                var newLeads = await leadsQuery
+                    .Where(l => l.status_id == 1)
+                    .CountAsync();
+
                 return new LeadStatsDto
                 {
                     TotalLeads = totalLeads,
+                    NewLeads = newLeads,
                     ConvertedLeads = convertedOpportunities,
                     ConversionRate = conversionRate,
                     AverageDaysToConvert = (int)Math.Round(averageDaysToConvert),
                     StatusBreakdown = statusBreakdown
                 };
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] GetLeadStatsAsync failed: {ex.Message}");
                 return new LeadStatsDto
                 {
                     TotalLeads = 0,
+                    NewLeads = 0,
                     ConvertedLeads = 0,
                     ConversionRate = 0.0,
                     AverageDaysToConvert = 0,
@@ -506,20 +599,25 @@ namespace gasopper_crm_server.Services
                     })
                     .ToListAsync<object>();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] GetLeadStatusesAsync failed: {ex.Message}");
                 return new List<object>();
             }
         }
 
+        /// <summary>
+        /// Checks if the current user can access the specified lead based on role permissions
+        /// </summary>
         private async Task<bool> CanAccessLeadAsync(Lead lead, int currentUserId, int currentUserRole)
         {
             try
             {
-                if (currentUserRole == 1) return true;
-                if (currentUserRole == 3) return lead.assigned_to == currentUserId;
+                if (currentUserRole == 1) return true; // Admin can access all
 
-                if (currentUserRole == 2)
+                if (currentUserRole == 3) return lead.assigned_to == currentUserId; // Salesperson can access own only
+
+                if (currentUserRole == 2) // Manager can access own + team
                 {
                     if (lead.assigned_to == currentUserId) return true;
 
@@ -529,8 +627,9 @@ namespace gasopper_crm_server.Services
 
                 return false;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] CanAccessLeadAsync failed: {ex.Message}");
                 return false;
             }
         }

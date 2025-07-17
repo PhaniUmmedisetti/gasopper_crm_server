@@ -74,7 +74,7 @@ namespace gasopper_crm_server.DTOs
     public class UpdateLeadStatusDto
     {
         [Required]
-        [Range(1, 2, ErrorMessage = "Status ID must be 1 (New) or 2 (Converted)")]
+        [Range(1, 7, ErrorMessage = "Status ID must be between 1 and 7")]
         public int StatusId { get; set; }
     }
 
@@ -89,7 +89,6 @@ namespace gasopper_crm_server.DTOs
         public int LeadId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
-
         public string Email { get; set; } = string.Empty;
         public string Address { get; set; } = string.Empty;
         public int ExpectedStations { get; set; }
@@ -134,6 +133,15 @@ namespace gasopper_crm_server.DTOs
         public bool IsDeleted { get; set; }
     }
 
+    /// <summary>
+    /// DTO for converting a lead to an opportunity.
+    /// 
+    /// BUSINESS RULE: When a lead is converted to an opportunity:
+    /// - created_by: Always set to the user who performs the conversion
+    /// - assigned_to: Defaults to the converting user, unless explicitly specified and permissions allow
+    /// - The original lead creator information is preserved in the lead record
+    /// - Assignment validation enforces role-based permissions
+    /// </summary>
     public class ConvertLeadToOpportunityDto
     {
         [Required]
@@ -166,6 +174,13 @@ namespace gasopper_crm_server.DTOs
         [Range(1, int.MaxValue, ErrorMessage = "Actual stations must be greater than 0")]
         public int ActualStations { get; set; }
 
+        /// <summary>
+        /// Optional: Assign opportunity to specific user. 
+        /// If null, opportunity will be assigned to the converting user.
+        /// Salesperson role cannot assign to others (will be forced to self).
+        /// Manager can only assign to team members.
+        /// Admin can assign to anyone.
+        /// </summary>
         public int? AssignedTo { get; set; }
     }
 
@@ -179,7 +194,6 @@ namespace gasopper_crm_server.DTOs
         public Dictionary<string, int> StatusBreakdown { get; set; } = new Dictionary<string, int>();
     }
 
-    // REMOVED: Duplicate PaginationDto - Now using shared version from PaginationDtos.cs
     // Use shared PaginatedResponseDto<T> instead of custom pagination response
     public class PaginatedLeadResponseDto : PaginatedResponseDto<LeadListResponseDto>
     {
