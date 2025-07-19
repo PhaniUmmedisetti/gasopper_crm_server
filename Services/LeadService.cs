@@ -101,27 +101,13 @@ namespace gasopper_crm_server.Services
                 var lead = await query.FirstOrDefaultAsync();
                 if (lead == null) return null;
 
-                // Check for associated opportunity with role-based access
-                var hasOpportunity = await _context.Opportunities
-                    .Where(o => o.lead_id == leadId && !o.is_deleted)
-                    .Where(o => currentUserRole == 1 ||
-                               (currentUserRole == 3 && o.assigned_to == currentUserId) ||
-                               (currentUserRole == 2 && (
-                                   o.assigned_to == currentUserId ||
-                                   _context.Users.Any(u => u.user_id == o.assigned_to && u.manager_id == currentUserId && u.is_active)
-                               )))
-                    .AnyAsync();
-
-                var opportunity = hasOpportunity ? await _context.Opportunities
+                // FIXED: Check for opportunity existence without role-based access filtering
+                var opportunity = await _context.Opportunities
                     .Include(o => o.OpportunityStatus)
                     .Where(o => o.lead_id == leadId && !o.is_deleted)
-                    .Where(o => currentUserRole == 1 ||
-                               (currentUserRole == 3 && o.assigned_to == currentUserId) ||
-                               (currentUserRole == 2 && (
-                                   o.assigned_to == currentUserId ||
-                                   _context.Users.Any(u => u.user_id == o.assigned_to && u.manager_id == currentUserId && u.is_active)
-                               )))
-                    .FirstOrDefaultAsync() : null;
+                    .FirstOrDefaultAsync();
+
+                var hasOpportunity = opportunity != null;
 
                 return new LeadResponseDto
                 {
@@ -196,38 +182,13 @@ namespace gasopper_crm_server.Services
                     .Take(pageSize)
                     .ToListAsync();
 
-                // Get accessible opportunities for has_opportunity flag
+                // FIXED: Get all opportunities and create a simple lookup (no role filtering)
                 var allOpportunities = await _context.Opportunities
                     .Where(o => !o.is_deleted)
-                    .Select(o => new { o.lead_id, o.assigned_to, o.opportunity_id })
+                    .Select(o => o.lead_id)
                     .ToListAsync();
 
-                var accessibleOpportunityLeadIds = new List<int>();
-
-                if (currentUserRole == 1) // Admin
-                {
-                    accessibleOpportunityLeadIds = allOpportunities.Select(o => o.lead_id).ToList();
-                }
-                else if (currentUserRole == 3) // Salesperson
-                {
-                    accessibleOpportunityLeadIds = allOpportunities
-                        .Where(o => o.assigned_to == currentUserId)
-                        .Select(o => o.lead_id)
-                        .ToList();
-                }
-                else if (currentUserRole == 2) // Manager
-                {
-                    var teamIds = await _context.Users
-                        .Where(u => u.manager_id == currentUserId && u.is_active)
-                        .Select(u => u.user_id)
-                        .ToListAsync();
-                    teamIds.Add(currentUserId);
-
-                    accessibleOpportunityLeadIds = allOpportunities
-                        .Where(o => teamIds.Contains(o.assigned_to))
-                        .Select(o => o.lead_id)
-                        .ToList();
-                }
+                var opportunityLeadIds = new HashSet<int>(allOpportunities);
 
                 var result = leads.Select(l => new LeadListResponseDto
                 {
@@ -242,7 +203,7 @@ namespace gasopper_crm_server.Services
                     CreatedByName = UserNameHelper.FormatCreatedByUserName(l.CreatedByUser),
                     CreatedAt = l.created_at,
                     LastUpdated = l.last_updated,
-                    HasOpportunity = accessibleOpportunityLeadIds.Contains(l.lead_id),
+                    HasOpportunity = opportunityLeadIds.Contains(l.lead_id),
                     IsDeleted = l.is_deleted
                 }).ToList();
 
@@ -314,6 +275,8 @@ namespace gasopper_crm_server.Services
             }
         }
 
+        // REPLACE this method in services/LeadService.cs starting at line 286
+
         public async Task<bool> DeleteLeadAsync(int leadId, int currentUserId, int currentUserRole)
         {
             try
@@ -322,10 +285,52 @@ namespace gasopper_crm_server.Services
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return false;
 
-                lead.is_deleted = true;
-                lead.last_updated = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
-                return true;
+                // ✅ MANUAL CASCADE SOFT DELETE - Start transaction
+                using var transaction = await _context.Database.BeginTransactionAsync();
+
+                try
+                {
+                    // Step 1: Find the related opportunity (if any)
+                    var opportunity = await _context.Opportunities
+                        .FirstOrDefaultAsync(o => o.lead_id == leadId && !o.is_deleted);
+
+                    if (opportunity != null)
+                    {
+                        // Step 2: Soft delete all gas stations for this opportunity
+                        var gasStations = await _context.GasStations
+                            .Where(gs => gs.opportunity_id == opportunity.opportunity_id && !gs.is_deleted)
+                            .ToListAsync();
+
+                        foreach (var station in gasStations)
+                        {
+                            station.is_deleted = true;
+                            station.last_updated = DateTime.UtcNow;
+                            Console.WriteLine($"[DEBUG] Soft deleted gas station {station.station_id} (cascade from lead {leadId})");
+                        }
+
+                        // Step 3: Soft delete the opportunity
+                        opportunity.is_deleted = true;
+                        opportunity.last_updated = DateTime.UtcNow;
+                        Console.WriteLine($"[DEBUG] Soft deleted opportunity {opportunity.opportunity_id} (cascade from lead {leadId})");
+                    }
+
+                    // Step 4: Finally, soft delete the lead
+                    lead.is_deleted = true;
+                    lead.last_updated = DateTime.UtcNow;
+                    Console.WriteLine($"[DEBUG] Soft deleted lead {leadId}");
+
+                    await _context.SaveChangesAsync();
+                    await transaction.CommitAsync();
+
+                    Console.WriteLine($"[SUCCESS] Lead {leadId} and all related records soft deleted successfully");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    await transaction.RollbackAsync();
+                    Console.WriteLine($"[ERROR] Transaction failed, rolling back: {ex.Message}");
+                    return false;
+                }
             }
             catch (Exception ex)
             {
@@ -382,9 +387,9 @@ namespace gasopper_crm_server.Services
                 if (lead == null || !await CanAccessLeadAsync(lead, currentUserId, currentUserRole))
                     return null;
 
-                // Check if lead already has an opportunity (1:1 relationship)
+                // FIXED: Check if lead already has an opportunity (no role filtering)
                 var existingOpportunity = await _context.Opportunities
-                    .FirstOrDefaultAsync(o => o.lead_id == leadId);
+                    .FirstOrDefaultAsync(o => o.lead_id == leadId && !o.is_deleted);
 
                 if (existingOpportunity != null)
                     return null; // Lead already converted
@@ -427,11 +432,11 @@ namespace gasopper_crm_server.Services
                     postal_code = convertDto.PostalCode,
                     country = convertDto.Country ?? "United States",
                     actual_stations = convertDto.ActualStations,
-                    
+
                     // KEY CHANGE: Both fields set to converting user (unless overridden by valid assignment)
                     assigned_to = assignedToUser,     // Converting user or valid assignee
                     created_by = currentUserId,       // Always the converting user
-                    
+
                     status_id = 1, // Active status
                     created_at = DateTime.UtcNow,
                     last_updated = DateTime.UtcNow,
@@ -464,7 +469,7 @@ namespace gasopper_crm_server.Services
         {
             var convertedStatus = await _context.LeadStatuses
                 .FirstOrDefaultAsync(s => s.status_name.ToLower() == "converted");
-            
+
             return convertedStatus?.status_id ?? 5; // Default to 5 if not found
         }
 
@@ -488,7 +493,7 @@ namespace gasopper_crm_server.Services
                     .Include(l => l.Status)
                     .Where(l => !l.is_deleted);
 
-                // Apply role-based filtering
+                // Apply role-based filtering to leads
                 if (currentUserRole == 3) // Salesperson
                 {
                     leadsQuery = leadsQuery.Where(l => l.assigned_to == currentUserId);
@@ -507,15 +512,13 @@ namespace gasopper_crm_server.Services
 
                 var totalLeads = await leadsQuery.CountAsync();
 
-                // Get converted opportunities with role-based access
+                // FIXED: Count opportunities with IDENTICAL role-based filtering as OpportunityService
                 var opportunitiesQuery = _context.Opportunities
+                    .Include(o => o.Lead)
                     .Where(o => !o.is_deleted)
-                    .Where(o => o.lead_id != null)
-                    .Join(_context.Leads.Where(l => !l.is_deleted),
-                          o => o.lead_id,
-                          l => l.lead_id,
-                          (o, l) => o);
+                    .Where(o => o.Lead != null && !o.Lead.is_deleted);
 
+                // Apply IDENTICAL role-based filtering as OpportunityService.GetOpportunitiesAsync()
                 if (currentUserRole == 3) // Salesperson
                 {
                     opportunitiesQuery = opportunitiesQuery.Where(o => o.assigned_to == currentUserId);

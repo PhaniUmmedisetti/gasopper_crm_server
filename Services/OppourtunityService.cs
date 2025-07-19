@@ -41,40 +41,71 @@ namespace gasopper_crm_server.Services
         {
             try
             {
+                Console.WriteLine($"[OpportunityService] GetOpportunityByIdAsync called for ID: {opportunityId}");
+
+                // FIXED: Build query with ALL necessary includes for gas stations
                 var query = _context.Opportunities
                     .Include(o => o.Lead)
                     .Include(o => o.OpportunityStatus)
                     .Include(o => o.AssignedToUser)
                     .Include(o => o.CreatedByUser)
+                    // CRITICAL FIX: Include gas stations with ALL navigation properties
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
-                        .ThenInclude(gs => gs.StationType)
+                        .ThenInclude(gs => gs.StationType)  // ADDED: Include station type
                     .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
-                        .ThenInclude(gs => gs.CreatedByUser)
-                    .Where(o => o.opportunity_id == opportunityId && !o.is_deleted)
-                    .Where(o => o.Lead != null && !o.Lead.is_deleted);
+                        .ThenInclude(gs => gs.CreatedByUser)  // ADDED: Include created by user
+                    .Where(o => o.opportunity_id == opportunityId && !o.is_deleted);
 
-                if (currentUserRole == 3)
+                Console.WriteLine($"[OpportunityService] Query built for opportunity {opportunityId}");
+
+                // Apply role-based filtering
+                if (currentUserRole == 3) // Salesperson can only see their own opportunities
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager can see own + team opportunities
                 {
+                    // Get team member IDs first (materialized)
                     var teamMemberIds = await _context.Users
-                        .Where(u => u.manager_id == currentUserId && u.is_active)
+                        .Where(u => u.manager_id == currentUserId || u.user_id == currentUserId)
                         .Select(u => u.user_id)
                         .ToListAsync();
 
-                    teamMemberIds.Add(currentUserId);
                     query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
+                // Admin can see all opportunities (no additional filtering)
 
                 var opportunity = await query.FirstOrDefaultAsync();
-                if (opportunity == null) return null;
 
-                return MapToOpportunityResponseDto(opportunity);
+                Console.WriteLine($"[OpportunityService] Query executed for opportunity {opportunityId}");
+
+                if (opportunity == null)
+                {
+                    Console.WriteLine($"[OpportunityService] Opportunity {opportunityId} not found or no access");
+                    return null;
+                }
+
+                Console.WriteLine($"[OpportunityService] Found opportunity {opportunityId}, gas stations count: {opportunity.GasStations?.Count ?? 0}");
+
+                // ENHANCED DEBUG: Log each gas station
+                if (opportunity.GasStations != null)
+                {
+                    foreach (var station in opportunity.GasStations)
+                    {
+                        Console.WriteLine($"[OpportunityService] Station found: ID={station.station_id}, Name={station.station_name}, IsDeleted={station.is_deleted}");
+                    }
+                }
+
+                var result = MapToOpportunityResponseDto(opportunity);
+
+                Console.WriteLine($"[OpportunityService] Mapped result for opportunity {opportunityId}: TotalStations={result.TotalStations}, StationsCount={result.Stations?.Count ?? 0}");
+
+                return result;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[OpportunityService] Error in GetOpportunityByIdAsync for ID {opportunityId}: {ex.Message}");
+                Console.WriteLine($"[OpportunityService] Stack trace: {ex.StackTrace}");
                 return null;
             }
         }
@@ -120,11 +151,12 @@ namespace gasopper_crm_server.Services
                     query = query.Where(o => !o.is_deleted);
                 }
 
-                if (currentUserRole == 3)
+                // FIXED: Apply IDENTICAL role-based filtering as LeadService.GetLeadStatsAsync()
+                if (currentUserRole == 3) // Salesperson
                 {
                     query = query.Where(o => o.assigned_to == currentUserId);
                 }
-                else if (currentUserRole == 2)
+                else if (currentUserRole == 2) // Manager
                 {
                     var teamMemberIds = await _context.Users
                         .Where(u => u.manager_id == currentUserId && u.is_active)
@@ -134,6 +166,7 @@ namespace gasopper_crm_server.Services
                     teamMemberIds.Add(currentUserId);
                     query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
                 }
+                // Admin sees all (no additional filtering)
 
                 var opportunities = await query
                     .OrderByDescending(o => o.last_updated)
@@ -141,8 +174,9 @@ namespace gasopper_crm_server.Services
 
                 return opportunities.Select(MapToOpportunityListDto).ToList();
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] GetOpportunitiesAsync failed: {ex.Message}");
                 return new List<OpportunityListDto>();
             }
         }
@@ -696,24 +730,31 @@ namespace gasopper_crm_server.Services
 
                 var stations = opportunity.GasStations.ToList();
 
+                // ✅ FIXED LOGIC: Complete only when ALL stations are SIGNED OFF
                 if (!stations.Any())
                 {
+                    // No stations = Active (status_id = 1)
                     opportunity.status_id = 1;
                 }
-                else if (stations.All(IsStationComplete))
+                else if (stations.All(gs => gs.is_signed_off))
                 {
+                    // ALL stations signed off = Complete (status_id = 2)
                     opportunity.status_id = 2;
                 }
                 else
                 {
+                    // Some stations not signed off = Active (status_id = 1)
                     opportunity.status_id = 1;
                 }
 
                 await _context.SaveChangesAsync();
+
+                Console.WriteLine($"[DEBUG] Opportunity {opportunityId} status updated to {opportunity.status_id} (signed off: {stations.Count(gs => gs.is_signed_off)}/{stations.Count})");
                 return true;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Console.WriteLine($"[ERROR] UpdateOpportunityStatusBasedOnStationsAsync failed: {ex.Message}");
                 return false;
             }
         }
@@ -750,6 +791,47 @@ namespace gasopper_crm_server.Services
             return station.is_signed_off;
         }
 
+        private static double CalculateStationCompletionPercentage(GasStation station)
+        {
+            var totalFields = 8; // Total required fields
+            var completedFields = 0;
+
+            if (!string.IsNullOrWhiteSpace(station.station_name)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.address_line_1)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.poc_name)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.poc_phone)) completedFields++;
+            if (!string.IsNullOrWhiteSpace(station.poc_email)) completedFields++;
+            if (station.number_of_pumps.HasValue) completedFields++;
+            if (station.number_of_employees.HasValue) completedFields++;
+            if (station.station_type_id.HasValue) completedFields++;
+
+            return Math.Round((double)completedFields / totalFields * 100, 1);
+        }
+        private static List<string> GetMissingFields(GasStation station)
+        {
+            var missing = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(station.station_name))
+                missing.Add("Station Name");
+            if (string.IsNullOrWhiteSpace(station.address_line_1))
+                missing.Add("Address");
+            if (string.IsNullOrWhiteSpace(station.poc_name))
+                missing.Add("POC Name");
+            if (string.IsNullOrWhiteSpace(station.poc_phone))
+                missing.Add("POC Phone");
+            if (string.IsNullOrWhiteSpace(station.poc_email))
+                missing.Add("POC Email");
+            if (!station.number_of_pumps.HasValue)
+                missing.Add("Number of Pumps");
+            if (!station.number_of_employees.HasValue)
+                missing.Add("Number of Employees");
+            if (!station.station_type_id.HasValue)
+                missing.Add("Station Type");
+
+            return missing;
+        }
+
+
         private OpportunityResponseDto MapToOpportunityResponseDto(Opportunity opportunity)
         {
             var stations = opportunity.GasStations.ToList();
@@ -772,6 +854,28 @@ namespace gasopper_crm_server.Services
                 if (!string.IsNullOrEmpty(opportunity.country) && opportunity.country != "United States")
                     combinedAddress += ", " + opportunity.country;
             }
+
+            // CRITICAL FIX: Map the actual stations instead of returning empty list
+            var stationDtos = stations.Select(s => new OpportunityStationDto
+            {
+                StationId = s.station_id,
+                StationName = s.station_name ?? "",
+                Address = s.Address, // Uses computed property from model
+                StationCode = s.station_code ?? "",
+                PocName = s.poc_name,
+                PocPhone = s.poc_phone,
+                PocEmail = s.poc_email,
+                NumberOfPumps = s.number_of_pumps,
+                NumberOfEmployees = s.number_of_employees,
+                StationTypeName = s.StationType?.type_name ?? "",
+                IsComplete = IsStationComplete(s),
+                CompletionPercentage = CalculateStationCompletionPercentage(s),
+                MissingFields = GetMissingFields(s),
+                CreatedAt = s.created_at,
+                StatusId = s.station_type_id ?? 0,
+                StatusName = s.StationType?.type_name ?? "",
+                Description = s.notes ?? ""
+            }).OrderBy(s => s.StationCode).ToList();
 
             return new OpportunityResponseDto
             {
@@ -800,7 +904,7 @@ namespace gasopper_crm_server.Services
                 CompleteStations = completeStations,
                 IncompleteStations = incompleteStations,
                 CompletionPercentage = completionPercentage,
-                Stations = new List<OpportunityStationDto>(),
+                Stations = stationDtos, // ✅ FIXED: Return actual mapped stations
                 CreatedAt = opportunity.created_at,
                 LastUpdated = opportunity.last_updated,
                 IsDeleted = opportunity.is_deleted
@@ -810,7 +914,9 @@ namespace gasopper_crm_server.Services
         private OpportunityListDto MapToOpportunityListDto(Opportunity opportunity)
         {
             var stations = opportunity.GasStations.ToList();
-            var completeStations = stations.Count(IsStationComplete);
+
+            // ✅ FIXED: Complete stations = signed off stations (not just completion percentage)
+            var completeStations = stations.Count(gs => gs.is_signed_off);
             var completionPercentage = stations.Any() ? Math.Round((double)completeStations / stations.Count * 100, 1) : 0.0;
 
             return new OpportunityListDto
@@ -823,7 +929,7 @@ namespace gasopper_crm_server.Services
                 AssignedToName = $"{opportunity.AssignedToUser?.first_name ?? ""} {opportunity.AssignedToUser?.last_name ?? ""}".Trim(),
                 ActualStations = opportunity.actual_stations,
                 TotalStations = stations.Count,
-                CompleteStations = completeStations,
+                CompleteStations = completeStations, // ✅ FIXED: Use signed off count
                 CompletionPercentage = completionPercentage,
                 CreatedAt = opportunity.created_at,
                 LastUpdated = opportunity.last_updated
