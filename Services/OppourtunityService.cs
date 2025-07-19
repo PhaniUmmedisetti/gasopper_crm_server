@@ -237,20 +237,20 @@ namespace gasopper_crm_server.Services
                 // Get opportunities after role filtering
                 var opportunities = await query.ToListAsync();
 
-                // FIXED: Apply completion status filtering in memory
+                // ✅ FIXED: Apply completion status filtering based on actualStations
                 if (completionStatus.HasValue)
                 {
                     opportunities = opportunities.Where(opp =>
                     {
-                        var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
+                        var signedOffCount = opp.GasStations.Count(gs => !gs.is_deleted && gs.is_signed_off);
 
-                        if (completionStatus.Value) // Complete: has stations AND all are signed off
+                        if (completionStatus.Value) // Complete: all expected stations signed off
                         {
-                            return stations.Any() && stations.All(gs => gs.is_signed_off);
+                            return opp.actual_stations > 0 && signedOffCount == opp.actual_stations;
                         }
-                        else // Incomplete: no stations OR at least one not signed off
+                        else // Incomplete: not all expected stations signed off
                         {
-                            return !stations.Any() || stations.Any(gs => !gs.is_signed_off);
+                            return signedOffCount < opp.actual_stations;
                         }
                     }).ToList();
                 }
@@ -309,20 +309,20 @@ namespace gasopper_crm_server.Services
 
                 var opportunities = await query.ToListAsync();
 
-                // FIXED: Apply completion status filtering in memory
+                // ✅ FIXED: Apply completion status filtering based on actualStations
                 if (completionStatus.HasValue)
                 {
                     opportunities = opportunities.Where(opp =>
                     {
-                        var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
+                        var signedOffCount = opp.GasStations.Count(gs => !gs.is_deleted && gs.is_signed_off);
 
-                        if (completionStatus.Value) // Complete
+                        if (completionStatus.Value) // Complete: all expected stations signed off
                         {
-                            return stations.Any() && stations.All(gs => gs.is_signed_off);
+                            return opp.actual_stations > 0 && signedOffCount == opp.actual_stations;
                         }
-                        else // Incomplete
+                        else // Incomplete: not all expected stations signed off
                         {
-                            return !stations.Any() || stations.Any(gs => !gs.is_signed_off);
+                            return signedOffCount < opp.actual_stations;
                         }
                     }).ToList();
                 }
@@ -366,89 +366,89 @@ namespace gasopper_crm_server.Services
         }
 
         public async Task<PaginatedOpportunitiesResponseDto> GetTeamOpportunitiesPaginatedAsync(int managerId, int page, int pageSize, bool? completionStatus = null, bool showSelfOnly = false)
+{
+    try
+    {
+        var query = _context.Opportunities
+            .Include(o => o.Lead)
+            .Include(o => o.OpportunityStatus)
+            .Include(o => o.AssignedToUser)
+            .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
+            .Where(o => !o.is_deleted)
+            .Where(o => o.Lead != null && !o.Lead.is_deleted);
+
+        // Apply self-only or team filtering
+        if (showSelfOnly)
         {
-            try
-            {
-                var query = _context.Opportunities
-                    .Include(o => o.Lead)
-                    .Include(o => o.OpportunityStatus)
-                    .Include(o => o.AssignedToUser)
-                    .Include(o => o.GasStations.Where(gs => !gs.is_deleted))
-                    .Where(o => !o.is_deleted)
-                    .Where(o => o.Lead != null && !o.Lead.is_deleted);
-
-                // Apply self-only or team filtering
-                if (showSelfOnly)
-                {
-                    query = query.Where(o => o.assigned_to == managerId);
-                }
-                else
-                {
-                    var teamMemberIds = await _context.Users
-                        .Where(u => u.manager_id == managerId && u.is_active)
-                        .Select(u => u.user_id)
-                        .ToListAsync();
-                    teamMemberIds.Add(managerId);
-                    query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
-                }
-
-                var opportunities = await query.ToListAsync();
-
-                // FIXED: Apply completion status filtering in memory
-                if (completionStatus.HasValue)
-                {
-                    opportunities = opportunities.Where(opp =>
-                    {
-                        var stations = opp.GasStations.Where(gs => !gs.is_deleted).ToList();
-
-                        if (completionStatus.Value) // Complete
-                        {
-                            return stations.Any() && stations.All(gs => gs.is_signed_off);
-                        }
-                        else // Incomplete
-                        {
-                            return !stations.Any() || stations.Any(gs => !gs.is_signed_off);
-                        }
-                    }).ToList();
-                }
-
-                var totalItems = opportunities.Count;
-                var paginatedOpportunities = opportunities
-                    .OrderByDescending(o => o.last_updated)
-                    .Skip((page - 1) * pageSize)
-                    .Take(pageSize)
-                    .ToList();
-
-                var result = paginatedOpportunities.Select(MapToOpportunityListDto).ToList();
-                var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
-
-                return new PaginatedOpportunitiesResponseDto
-                {
-                    Data = result,
-                    Pagination = new PaginationDto
-                    {
-                        CurrentPage = page,
-                        TotalPages = totalPages,
-                        TotalItems = totalItems,
-                        PageSize = pageSize
-                    }
-                };
-            }
-            catch (Exception)
-            {
-                return new PaginatedOpportunitiesResponseDto
-                {
-                    Data = new List<OpportunityListDto>(),
-                    Pagination = new PaginationDto
-                    {
-                        CurrentPage = 1,
-                        TotalPages = 0,
-                        TotalItems = 0,
-                        PageSize = pageSize
-                    }
-                };
-            }
+            query = query.Where(o => o.assigned_to == managerId);
         }
+        else
+        {
+            var teamMemberIds = await _context.Users
+                .Where(u => u.manager_id == managerId && u.is_active)
+                .Select(u => u.user_id)
+                .ToListAsync();
+            teamMemberIds.Add(managerId);
+            query = query.Where(o => teamMemberIds.Contains(o.assigned_to));
+        }
+
+        var opportunities = await query.ToListAsync();
+
+        // ✅ FIXED: Apply completion status filtering based on actualStations
+        if (completionStatus.HasValue)
+        {
+            opportunities = opportunities.Where(opp =>
+            {
+                var signedOffCount = opp.GasStations.Count(gs => !gs.is_deleted && gs.is_signed_off);
+
+                if (completionStatus.Value) // Complete: all expected stations signed off
+                {
+                    return opp.actual_stations > 0 && signedOffCount == opp.actual_stations;
+                }
+                else // Incomplete: not all expected stations signed off
+                {
+                    return signedOffCount < opp.actual_stations;
+                }
+            }).ToList();
+        }
+
+        var totalItems = opportunities.Count;
+        var paginatedOpportunities = opportunities
+            .OrderByDescending(o => o.last_updated)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        var result = paginatedOpportunities.Select(MapToOpportunityListDto).ToList();
+        var totalPages = (int)Math.Ceiling((double)totalItems / pageSize);
+
+        return new PaginatedOpportunitiesResponseDto
+        {
+            Data = result,
+            Pagination = new PaginationDto
+            {
+                CurrentPage = page,
+                TotalPages = totalPages,
+                TotalItems = totalItems,
+                PageSize = pageSize
+            }
+        };
+    }
+    catch (Exception)
+    {
+        return new PaginatedOpportunitiesResponseDto
+        {
+            Data = new List<OpportunityListDto>(),
+            Pagination = new PaginationDto
+            {
+                CurrentPage = 1,
+                TotalPages = 0,
+                TotalItems = 0,
+                PageSize = pageSize
+            }
+        };
+    }
+}
 
         public async Task<OpportunityResponseDto?> UpdateOpportunityAsync(int opportunityId, UpdateOpportunityDto updateDto, int currentUserId, int currentUserRole)
         {
