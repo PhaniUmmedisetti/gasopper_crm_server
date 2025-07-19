@@ -85,7 +85,7 @@ namespace gasopper_crm_server.Services
 
                 // Apply pagination
                 var gasStations = await query
-                    .OrderBy(gs => gs.station_code)
+                    .OrderByDescending(gs => gs.station_code)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
                     .ToListAsync();
@@ -183,7 +183,7 @@ namespace gasopper_crm_server.Services
 
                 // Apply pagination
                 var gasStations = await query
-                    .OrderBy(gs => gs.station_code)
+                    .OrderByDescending(gs => gs.station_code)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
                     .ToListAsync();
@@ -261,7 +261,7 @@ namespace gasopper_crm_server.Services
 
                 // Apply pagination
                 var gasStations = await query
-                    .OrderBy(gs => gs.station_code)
+                    .OrderByDescending(gs => gs.station_code)
                     .Skip((page - 1) * pageSize)
                     .Take(pageSize)
                     .ToListAsync();
@@ -407,7 +407,7 @@ namespace gasopper_crm_server.Services
                     .Include(gs => gs.Opportunity)
                         .ThenInclude(o => o.Lead)
                     .Where(gs => gs.opportunity_id == opportunityId && !gs.is_deleted)
-                    .OrderBy(gs => gs.station_code)
+                    .OrderByDescending(gs => gs.station_code)
                     .ToListAsync();
 
                 var results = new List<GasStationListResponseDto>();
@@ -439,7 +439,7 @@ namespace gasopper_crm_server.Services
                 query = await ApplyRoleBasedFilteringAsync(query, currentUserId, currentUserRole);
 
                 var gasStations = await query
-                    .OrderBy(gs => gs.station_code)
+                    .OrderByDescending(gs => gs.station_code)
                     .ToListAsync();
 
                 var results = new List<GasStationListResponseDto>();
@@ -658,7 +658,7 @@ namespace gasopper_crm_server.Services
                     .Include(gs => gs.Opportunity)
                         .ThenInclude(o => o.Lead)
                     .Where(gs => !gs.is_deleted && gs.Opportunity.assigned_to == currentUserId)
-                    .OrderBy(gs => gs.station_code)
+                    .OrderByDescending(gs => gs.station_code)
                     .ToListAsync();
 
                 var results = new List<GasStationListResponseDto>();
@@ -693,7 +693,7 @@ namespace gasopper_crm_server.Services
                     .Include(gs => gs.Opportunity)
                         .ThenInclude(o => o.Lead)
                     .Where(gs => !gs.is_deleted && teamMemberIds.Contains(gs.Opportunity.assigned_to))
-                    .OrderBy(gs => gs.station_code)
+                    .OrderByDescending(gs => gs.station_code)
                     .ToListAsync();
 
                 var results = new List<GasStationListResponseDto>();
@@ -782,7 +782,7 @@ namespace gasopper_crm_server.Services
             try
             {
                 var stationTypes = await _context.StationTypes
-                    .OrderBy(st => st.station_type_id)
+                    .OrderByDescending(st => st.station_type_id)
                     .ToListAsync();
 
                 return stationTypes.Select(st => new StationTypeDto
