@@ -6,20 +6,22 @@ using gasopper_crm_server.Helpers;
 
 namespace gasopper_crm_server.Services
 {
-    // ADDED: Custom result class for better error handling
+    // UPDATED: ServiceResult class with success message support
     public class ServiceResult<T>
     {
         public bool Success { get; set; }
         public T? Data { get; set; }
         public string? ErrorMessage { get; set; }
         public string? ErrorCode { get; set; }
+        public string? SuccessMessage { get; set; } // NEW: For detailed success messages
 
-        public static ServiceResult<T> SuccessResult(T data)
+        public static ServiceResult<T> SuccessResult(T data, string? message = null)
         {
             return new ServiceResult<T>
             {
                 Success = true,
-                Data = data
+                Data = data,
+                SuccessMessage = message
             };
         }
 
@@ -44,10 +46,10 @@ namespace gasopper_crm_server.Services
         Task<ServiceResult<UserResponseDto>> UpdateUserAsync(int userId, UpdateUserDto updateUserDto, int currentUserId, int currentUserRole);
         Task<ServiceResult<bool>> DeleteUserAsync(int userId, int currentUserId, int currentUserRole);
         Task<List<UserListResponseDto>> GetMyTeamAsync(int managerId);
-        
+
         // COMMENTED OUT: Password change method for OTP-only authentication
         // Task<bool> ChangePasswordAsync(int userId, ChangePasswordDto changePasswordDto, int currentUserId);
-        
+
         Task<List<object>> GetRolesAsync();
         Task<List<UserListResponseDto>> GetAvailableManagersAsync(int currentUserId, int currentUserRole);
     }
@@ -79,15 +81,15 @@ namespace gasopper_crm_server.Services
                 if (currentUserRole == 3) // Salesperson cannot create users
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "Access denied. Salespeople cannot create other users.", 
+                        "Access denied. Salespeople cannot create other users.",
                         "INSUFFICIENT_PERMISSIONS"
                     );
                 }
-                
+
                 if (currentUserRole == 2 && createUserDto.RoleId != 3) // Manager can only create Salesperson
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "Access denied. Managers can only create Salesperson accounts.", 
+                        "Access denied. Managers can only create Salesperson accounts.",
                         "ROLE_RESTRICTION"
                     );
                 }
@@ -95,11 +97,11 @@ namespace gasopper_crm_server.Services
                 // ENHANCED: Check for existing email with detailed message
                 var existingUser = await _context.Users
                     .FirstOrDefaultAsync(u => u.email == createUserDto.Email);
-                
+
                 if (existingUser != null)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        $"A user with email '{createUserDto.Email}' already exists in the system.", 
+                        $"A user with email '{createUserDto.Email}' already exists in the system.",
                         "EMAIL_ALREADY_EXISTS"
                     );
                 }
@@ -107,11 +109,11 @@ namespace gasopper_crm_server.Services
                 // ENHANCED: Validate role exists
                 var roleExists = await _context.Roles
                     .AnyAsync(r => r.role_id == createUserDto.RoleId);
-                
+
                 if (!roleExists)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        $"Invalid role ID '{createUserDto.RoleId}'. Please select a valid role.", 
+                        $"Invalid role ID '{createUserDto.RoleId}'. Please select a valid role.",
                         "INVALID_ROLE"
                     );
                 }
@@ -133,36 +135,36 @@ namespace gasopper_crm_server.Services
                     var targetManager = await _context.Users
                         .Include(u => u.Role)
                         .FirstOrDefaultAsync(u => u.user_id == assignedManagerId.Value);
-                    
+
                     if (targetManager == null)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Manager with ID '{assignedManagerId}' not found.", 
+                            $"Manager with ID '{assignedManagerId}' not found.",
                             "MANAGER_NOT_FOUND"
                         );
                     }
-                    
+
                     if (targetManager.role_id != 2) // Must be a Manager role
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Selected user '{targetManager.first_name} {targetManager.last_name}' is not a Manager and cannot be assigned as a manager.", 
+                            $"Selected user '{targetManager.first_name} {targetManager.last_name}' is not a Manager and cannot be assigned as a manager.",
                             "INVALID_MANAGER_ROLE"
                         );
                     }
-                    
+
                     if (!targetManager.is_active)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Manager '{targetManager.first_name} {targetManager.last_name}' is inactive and cannot be assigned.", 
+                            $"Manager '{targetManager.first_name} {targetManager.last_name}' is inactive and cannot be assigned.",
                             "INACTIVE_MANAGER"
                         );
                     }
-                    
+
                     // Manager permission check
                     if (currentUserRole == 2 && assignedManagerId != currentUserId)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            "Access denied. Managers can only assign users to themselves.", 
+                            "Access denied. Managers can only assign users to themselves.",
                             "MANAGER_ASSIGNMENT_RESTRICTION"
                         );
                     }
@@ -171,11 +173,11 @@ namespace gasopper_crm_server.Services
                 // ENHANCED: Check for Employee ID collision (very rare but possible)
                 var employeeIdExists = await _context.Users
                     .AnyAsync(u => u.employee_id == generatedEmployeeId);
-                
+
                 if (employeeIdExists)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "Employee ID generation conflict. Please try again.", 
+                        "Employee ID generation conflict. Please try again.",
                         "EMPLOYEE_ID_CONFLICT"
                     );
                 }
@@ -201,11 +203,11 @@ namespace gasopper_crm_server.Services
                 await _context.SaveChangesAsync();
 
                 var createdUser = await GetUserByIdAsync(user.user_id, currentUserId, currentUserRole);
-                
+
                 if (createdUser == null)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "User was created but could not be retrieved. Please refresh and try again.", 
+                        "User was created but could not be retrieved. Please refresh and try again.",
                         "POST_CREATION_ERROR"
                     );
                 }
@@ -215,27 +217,27 @@ namespace gasopper_crm_server.Services
             catch (DbUpdateException dbEx)
             {
                 // Database-specific errors
-                if (dbEx.InnerException?.Message.Contains("UNIQUE") == true || 
+                if (dbEx.InnerException?.Message.Contains("UNIQUE") == true ||
                     dbEx.InnerException?.Message.Contains("duplicate") == true)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "A user with this information already exists. Please check email and employee details.", 
+                        "A user with this information already exists. Please check email and employee details.",
                         "DUPLICATE_ENTRY"
                     );
                 }
-                
+
                 return ServiceResult<UserResponseDto>.ErrorResult(
-                    "Database error occurred while creating user. Please try again.", 
+                    "Database error occurred while creating user. Please try again.",
                     "DATABASE_ERROR"
                 );
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 // Log the actual exception for debugging (you should use proper logging)
                 // _logger.LogError(ex, "Error creating user");
-                
+
                 return ServiceResult<UserResponseDto>.ErrorResult(
-                    "An unexpected error occurred while creating the user. Please try again.", 
+                    "An unexpected error occurred while creating the user. Please try again.",
                     "INTERNAL_ERROR"
                 );
             }
@@ -250,7 +252,7 @@ namespace gasopper_crm_server.Services
                 if (user == null)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "User not found or you don't have permission to edit this user.", 
+                        "User not found or you don't have permission to edit this user.",
                         "USER_NOT_FOUND_OR_ACCESS_DENIED"
                     );
                 }
@@ -260,11 +262,11 @@ namespace gasopper_crm_server.Services
                 {
                     var emailExists = await _context.Users
                         .AnyAsync(u => u.email == updateUserDto.Email && u.user_id != userId);
-                    
+
                     if (emailExists)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Email '{updateUserDto.Email}' is already in use by another user.", 
+                            $"Email '{updateUserDto.Email}' is already in use by another user.",
                             "EMAIL_ALREADY_EXISTS"
                         );
                     }
@@ -276,18 +278,18 @@ namespace gasopper_crm_server.Services
                     if (currentUserRole != 1) // Only Admin can change roles
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            "Access denied. Only Administrators can change user roles.", 
+                            "Access denied. Only Administrators can change user roles.",
                             "INSUFFICIENT_PERMISSIONS"
                         );
                     }
-                    
+
                     var roleExists = await _context.Roles
                         .AnyAsync(r => r.role_id == updateUserDto.RoleId.Value);
-                    
+
                     if (!roleExists)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Invalid role ID '{updateUserDto.RoleId.Value}'. Please select a valid role.", 
+                            $"Invalid role ID '{updateUserDto.RoleId.Value}'. Please select a valid role.",
                             "INVALID_ROLE"
                         );
                     }
@@ -299,36 +301,36 @@ namespace gasopper_crm_server.Services
                     var targetManager = await _context.Users
                         .Include(u => u.Role)
                         .FirstOrDefaultAsync(u => u.user_id == updateUserDto.ManagerId.Value);
-                    
+
                     if (targetManager == null)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Manager with ID '{updateUserDto.ManagerId.Value}' not found.", 
+                            $"Manager with ID '{updateUserDto.ManagerId.Value}' not found.",
                             "MANAGER_NOT_FOUND"
                         );
                     }
-                    
+
                     if (targetManager.role_id != 2)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Selected user '{targetManager.first_name} {targetManager.last_name}' is not a Manager.", 
+                            $"Selected user '{targetManager.first_name} {targetManager.last_name}' is not a Manager.",
                             "INVALID_MANAGER_ROLE"
                         );
                     }
-                    
+
                     if (!targetManager.is_active)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            $"Manager '{targetManager.first_name} {targetManager.last_name}' is inactive.", 
+                            $"Manager '{targetManager.first_name} {targetManager.last_name}' is inactive.",
                             "INACTIVE_MANAGER"
                         );
                     }
-                    
+
                     // Prevent circular manager assignment
                     if (updateUserDto.ManagerId.Value == userId)
                     {
                         return ServiceResult<UserResponseDto>.ErrorResult(
-                            "A user cannot be assigned as their own manager.", 
+                            "A user cannot be assigned as their own manager.",
                             "CIRCULAR_MANAGER_ASSIGNMENT"
                         );
                     }
@@ -337,16 +339,16 @@ namespace gasopper_crm_server.Services
                 // Apply updates
                 if (!string.IsNullOrEmpty(updateUserDto.Email))
                     user.email = updateUserDto.Email;
-                
+
                 if (!string.IsNullOrEmpty(updateUserDto.PhoneNumber))
                     user.phone_number = updateUserDto.PhoneNumber;
-                
+
                 if (!string.IsNullOrEmpty(updateUserDto.Address))
                     user.address = updateUserDto.Address;
-                
+
                 if (!string.IsNullOrEmpty(updateUserDto.FirstName))
                     user.first_name = updateUserDto.FirstName;
-                
+
                 if (!string.IsNullOrEmpty(updateUserDto.LastName))
                     user.last_name = updateUserDto.LastName;
 
@@ -365,13 +367,13 @@ namespace gasopper_crm_server.Services
                     {
                         var isTeamMember = await _context.Users
                             .AnyAsync(u => u.user_id == userId && u.manager_id == currentUserId);
-                        
+
                         if (isTeamMember)
                             user.manager_id = updateUserDto.ManagerId.Value;
                         else
                         {
                             return ServiceResult<UserResponseDto>.ErrorResult(
-                                "You can only reassign users from your own team.", 
+                                "You can only reassign users from your own team.",
                                 "TEAM_ASSIGNMENT_RESTRICTION"
                             );
                         }
@@ -386,11 +388,11 @@ namespace gasopper_crm_server.Services
                 await _context.SaveChangesAsync();
 
                 var updatedUser = await GetUserByIdAsync(userId, currentUserId, currentUserRole);
-                
+
                 if (updatedUser == null)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "User was updated but could not be retrieved. Please refresh and try again.", 
+                        "User was updated but could not be retrieved. Please refresh and try again.",
                         "POST_UPDATE_ERROR"
                     );
                 }
@@ -399,24 +401,24 @@ namespace gasopper_crm_server.Services
             }
             catch (DbUpdateException dbEx)
             {
-                if (dbEx.InnerException?.Message.Contains("UNIQUE") == true || 
+                if (dbEx.InnerException?.Message.Contains("UNIQUE") == true ||
                     dbEx.InnerException?.Message.Contains("duplicate") == true)
                 {
                     return ServiceResult<UserResponseDto>.ErrorResult(
-                        "The updated information conflicts with existing data. Please check email and other details.", 
+                        "The updated information conflicts with existing data. Please check email and other details.",
                         "DUPLICATE_ENTRY"
                     );
                 }
-                
+
                 return ServiceResult<UserResponseDto>.ErrorResult(
-                    "Database error occurred while updating user. Please try again.", 
+                    "Database error occurred while updating user. Please try again.",
                     "DATABASE_ERROR"
                 );
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return ServiceResult<UserResponseDto>.ErrorResult(
-                    "An unexpected error occurred while updating the user. Please try again.", 
+                    "An unexpected error occurred while updating the user. Please try again.",
                     "INTERNAL_ERROR"
                 );
             }
@@ -430,7 +432,7 @@ namespace gasopper_crm_server.Services
                 if (currentUserRole != 1)
                 {
                     return ServiceResult<bool>.ErrorResult(
-                        "Access denied. Only Administrators can deactivate users.", 
+                        "Access denied. Only Administrators can deactivate users.",
                         "INSUFFICIENT_PERMISSIONS"
                     );
                 }
@@ -439,7 +441,7 @@ namespace gasopper_crm_server.Services
                 if (userId == currentUserId)
                 {
                     return ServiceResult<bool>.ErrorResult(
-                        "You cannot deactivate your own account.", 
+                        "You cannot deactivate your own account.",
                         "SELF_DELETION_FORBIDDEN"
                     );
                 }
@@ -447,11 +449,11 @@ namespace gasopper_crm_server.Services
                 var user = await _context.Users
                     .Include(u => u.Role)
                     .FirstOrDefaultAsync(u => u.user_id == userId);
-                
+
                 if (user == null)
                 {
                     return ServiceResult<bool>.ErrorResult(
-                        $"User with ID '{userId}' not found.", 
+                        $"User with ID '{userId}' not found.",
                         "USER_NOT_FOUND"
                     );
                 }
@@ -459,38 +461,102 @@ namespace gasopper_crm_server.Services
                 if (!user.is_active)
                 {
                     return ServiceResult<bool>.ErrorResult(
-                        $"User '{user.first_name} {user.last_name}' is already inactive.", 
+                        $"User '{user.first_name} {user.last_name}' is already inactive.",
                         "USER_ALREADY_INACTIVE"
                     );
                 }
 
-                // ENHANCED: Check if user has team members before deactivation
-                var hasTeamMembers = await _context.Users
-                    .AnyAsync(u => u.manager_id == userId && u.is_active);
-                
-                if (hasTeamMembers)
+                // SMART AUTO-REASSIGNMENT: Handle team members before deactivation
+                var teamMembers = await _context.Users
+                    .Where(u => u.manager_id == userId && u.is_active)
+                    .ToListAsync();
+
+                string reassignmentMessage = "";
+
+                if (teamMembers.Any())
                 {
-                    var teamCount = await _context.Users
-                        .CountAsync(u => u.manager_id == userId && u.is_active);
-                    
-                    return ServiceResult<bool>.ErrorResult(
-                        $"Cannot deactivate user '{user.first_name} {user.last_name}' as they manage {teamCount} active team member(s). Please reassign their team members first.", 
-                        "HAS_ACTIVE_TEAM_MEMBERS"
-                    );
+                    // Find the best reassignment target
+                    User? newManager = null;
+                    string reassignmentType = "";
+
+                    // Option 1: Try to find another active manager at the same level
+                    var otherManagers = await _context.Users
+                        .Where(u => u.role_id == 2 && u.is_active && u.user_id != userId)
+                        .ToListAsync();
+
+                    if (otherManagers.Any())
+                    {
+                        newManager = otherManagers.First(); // Take the first available manager
+                        reassignmentType = "active manager";
+                    }
+                    else
+                    {
+                        // Option 2: Try to find the user's own manager (move team up one level)
+                        if (user.manager_id.HasValue)
+                        {
+                            newManager = await _context.Users
+                                .FirstOrDefaultAsync(u => u.user_id == user.manager_id.Value && u.is_active);
+
+                            if (newManager != null)
+                            {
+                                reassignmentType = "upper-level manager";
+                            }
+                        }
+                    }
+
+                    // Option 3: Find any active admin
+                    if (newManager == null)
+                    {
+                        newManager = await _context.Users
+                            .Where(u => u.role_id == 1 && u.is_active && u.user_id != userId)
+                            .FirstOrDefaultAsync();
+
+                        if (newManager != null)
+                        {
+                            reassignmentType = "admin";
+                        }
+                    }
+
+                    // Perform reassignment
+                    if (newManager != null)
+                    {
+                        foreach (var member in teamMembers)
+                        {
+                            member.manager_id = newManager.user_id;
+                            member.last_updated = DateTime.UtcNow;
+                        }
+
+                        reassignmentMessage = $" {teamMembers.Count} team member(s) reassigned to {newManager.first_name} {newManager.last_name} ({reassignmentType}).";
+                    }
+                    else
+                    {
+                        // Last resort: Orphan the team members (set manager to null)
+                        foreach (var member in teamMembers)
+                        {
+                            member.manager_id = null;
+                            member.last_updated = DateTime.UtcNow;
+                        }
+
+                        reassignmentMessage = $" {teamMembers.Count} team member(s) set as unassigned (no available managers found).";
+                    }
                 }
 
+                // Deactivate the user
                 user.is_active = false;
                 user.jwt_token = null; // Invalidate token
                 user.last_updated = DateTime.UtcNow;
-                
+
                 await _context.SaveChangesAsync();
-                
+
+                // Return success with detailed message
+                string successMessage = $"User '{user.first_name} {user.last_name}' deactivated successfully.{reassignmentMessage}";
+
                 return ServiceResult<bool>.SuccessResult(true);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return ServiceResult<bool>.ErrorResult(
-                    "An unexpected error occurred while deactivating the user. Please try again.", 
+                    "An unexpected error occurred while deactivating the user. Please try again.",
                     "INTERNAL_ERROR"
                 );
             }
@@ -525,7 +591,7 @@ namespace gasopper_crm_server.Services
                 // Admin can see all (no filter)
 
                 var user = await query.FirstOrDefaultAsync();
-                
+
                 if (user == null)
                     return null;
 
@@ -685,7 +751,7 @@ namespace gasopper_crm_server.Services
             {
                 var roles = await _context.Roles
                     .OrderBy(r => r.role_id)
-                    .Select(r => new 
+                    .Select(r => new
                     {
                         roleId = r.role_id,
                         roleName = r.role_name

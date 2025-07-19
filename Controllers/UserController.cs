@@ -159,6 +159,7 @@ namespace gasopper_crm_server.Controllers
         }
 
         // 🔒 ONLY Admin can delete/deactivate users
+        // Updated DeleteUser method in UsersController.cs
         [HttpDelete("{id}")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> DeleteUser(int id)
@@ -191,9 +192,12 @@ namespace gasopper_crm_server.Controllers
                 });
             }
 
-            return Ok(new { message = "User deactivated successfully" });
+            // ENHANCED: Return detailed success message including reassignment info
+            return Ok(new
+            {
+                message = result.SuccessMessage ?? "User deactivated successfully"
+            });
         }
-
         // 🔒 ONLY Manager/Admin can view team members
         [HttpGet("my-team")]
         [Authorize(Roles = "Manager,Admin")]
@@ -236,7 +240,7 @@ namespace gasopper_crm_server.Controllers
                 var roles = await _userService.GetRolesAsync();
                 return Ok(roles);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(500, new
                 {
@@ -258,7 +262,7 @@ namespace gasopper_crm_server.Controllers
 
                 return Ok(new { data = managers, count = managers.Count });
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(500, new
                 {
@@ -314,7 +318,7 @@ namespace gasopper_crm_server.Controllers
 
                 return Ok(response);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(500, new
                 {
@@ -364,7 +368,7 @@ namespace gasopper_crm_server.Controllers
 
                 return Ok(new { message = "User will be required to reset password on next login" });
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return StatusCode(500, new
                 {
